@@ -1,18 +1,39 @@
 'use client';
 
-import { useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Loader2, Trash2, Brain, Dumbbell, Calendar, Target } from 'lucide-react';
+import { ArrowLeft, Trash2, Brain, Calendar, Target, Check, Sparkles } from 'lucide-react';
 import { format } from 'date-fns';
-import { MuscleMap, MuscleMapSheet, type MuscleExposureDetail } from '@/components/anatomy';
+import dynamic from 'next/dynamic';
+import { MuscleMapSheet, type MuscleExposureDetail } from '@/components/anatomy';
 
-export default function WorkoutDetailPage() {
+// Lazy-load heavy anatomy visualization so initial workout metrics and exercises render instantly
+const DynamicMuscleMap = dynamic(
+  () => import('@/components/anatomy').then((mod) => mod.MuscleMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div
+        className="w-full flex flex-col items-center justify-center rounded-xl bg-white/[0.02] border border-white/5 animate-pulse"
+        style={{ height: 'clamp(190px, 24vh, 220px)' }}
+      >
+        <span className="text-xs text-zinc-500 font-medium">Loading anatomy...</span>
+      </div>
+    ),
+  }
+);
+
+function WorkoutDetailContent() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const workoutId = params.id as string;
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleExposureDetail | null>(null);
+
+  const isJustSaved = searchParams.get('justSaved') === 'true';
+  const isAnalyzing = searchParams.get('analyzing') === 'true';
 
   const { data: resData, isLoading, error } = useQuery({
     queryKey: ['workout', workoutId],
@@ -21,6 +42,7 @@ export default function WorkoutDetailPage() {
       if (!res.ok) throw new Error('Failed to fetch');
       return res.json();
     },
+    staleTime: 1000 * 60 * 5,
   });
 
   const deleteMutation = useMutation({
@@ -30,14 +52,35 @@ export default function WorkoutDetailPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
       router.push('/');
     },
   });
 
-  if (isLoading) {
+  // Layered / per-component skeleton when completely uncached
+  if (isLoading && !resData) {
     return (
-      <div className="page-content flex items-center justify-center py-12">
-        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+      <div className="page-content space-y-4">
+        <div className="flex items-center gap-3 pt-2">
+          <button onClick={() => router.back()} className="btn-ghost p-2" aria-label="Back">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="space-y-1.5 flex-1">
+            <div className="h-6 w-48 bg-white/10 rounded animate-pulse" />
+            <div className="h-3 w-28 bg-white/5 rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card-compact h-16 bg-white/5 animate-pulse rounded-xl" />
+          ))}
+        </div>
+        <div className="card h-48 bg-white/5 animate-pulse rounded-xl" />
+        <div className="space-y-3">
+          {[1, 2].map((i) => (
+            <div key={i} className="card h-28 bg-white/5 animate-pulse rounded-xl" />
+          ))}
+        </div>
       </div>
     );
   }
@@ -67,7 +110,23 @@ export default function WorkoutDetailPage() {
   }
 
   return (
-    <div className="page-content">
+    <div className="page-content space-y-3.5">
+      {/* Non-blocking feedback banners */}
+      {isJustSaved && (
+        <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+          <div className="flex items-center gap-2">
+            <Check size={16} className="text-emerald-400 shrink-0" />
+            <span className="font-semibold">Workout saved.</span>
+          </div>
+          {isAnalyzing && (
+            <span className="flex items-center gap-1.5 text-zinc-400 text-[11px]">
+              <Sparkles size={13} className="text-amber-400 animate-spin" />
+              Analyzing in background...
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between pt-2">
         <div className="flex items-center gap-3">
@@ -76,7 +135,7 @@ export default function WorkoutDetailPage() {
           </button>
           <div>
             <h1 className="text-xl font-bold">{workout.name ?? 'Workout'}</h1>
-            <p className="text-sm" style={{ color: 'var(--color-text-tertiary)' }}>
+            <p className="text-sm text-zinc-400">
               <Calendar size={12} className="inline mr-1" />
               {format(new Date(workout.performedAt), 'MMM d, yyyy')}
             </p>
@@ -85,19 +144,19 @@ export default function WorkoutDetailPage() {
         <div className="flex items-center gap-1">
           <button
             onClick={() => router.push(`/analyze/${workoutId}`)}
-            className="btn-ghost p-2"
+            className="btn-ghost p-2 text-indigo-400"
             aria-label="Analyze with coach"
           >
-            <Brain size={18} style={{ color: 'var(--color-accent)' }} />
+            <Brain size={18} />
           </button>
           <button
             onClick={() => {
               if (confirm('Delete this workout?')) deleteMutation.mutate();
             }}
-            className="btn-ghost p-2"
+            className="btn-ghost p-2 text-rose-400"
             aria-label="Delete workout"
           >
-            <Trash2 size={18} style={{ color: 'var(--color-error)' }} />
+            <Trash2 size={18} />
           </button>
         </div>
       </div>
@@ -107,15 +166,15 @@ export default function WorkoutDetailPage() {
         <div className="grid grid-cols-3 gap-3">
           <div className="card-compact text-center">
             <p className="text-lg font-bold">{stats.totalSets}</p>
-            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Sets</p>
+            <p className="text-xs text-zinc-400">Sets</p>
           </div>
           <div className="card-compact text-center">
             <p className="text-lg font-bold">{Math.round(stats.totalVolume).toLocaleString()}</p>
-            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Volume (kg)</p>
+            <p className="text-xs text-zinc-400">Volume (kg)</p>
           </div>
           <div className="card-compact text-center">
             <p className="text-lg font-bold">{workout.exercises.length}</p>
-            <p className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>Exercises</p>
+            <p className="text-xs text-zinc-400">Exercises</p>
           </div>
         </div>
       )}
@@ -140,7 +199,7 @@ export default function WorkoutDetailPage() {
           <div className="md:grid md:grid-cols-12 md:gap-6 md:items-center">
             {/* Viewport & Anatomy - centered, contained */}
             <div className="md:col-span-5 flex flex-col items-center">
-              <MuscleMap
+              <DynamicMuscleMap
                 bodyState={muscleExposure.bodyState}
                 selectedMuscleId={selectedMuscle?.muscleId}
                 onSelectMuscle={(id) => {
@@ -210,7 +269,7 @@ export default function WorkoutDetailPage() {
           </div>
         ) : (
           <div className="text-center py-6 text-sm text-zinc-400">
-            <p className="mb-2">Muscle mapping isn't available for this workout yet.</p>
+            <p className="mb-2">Muscle mapping isn&apos;t available for this workout yet.</p>
             <button
               onClick={() => router.push('/more/exercises')}
               className="btn-ghost text-xs underline text-indigo-400"
@@ -219,95 +278,106 @@ export default function WorkoutDetailPage() {
             </button>
           </div>
         )}
-
-        {muscleExposure?.unmappedExercises && muscleExposure.unmappedExercises.length > 0 && (
-          <div className="mt-3 pt-2 border-t border-white/5 flex items-center justify-between text-xs text-amber-400/90">
-            <span>{muscleExposure.unmappedExercises.length} unmapped exercise(s)</span>
-            <button
-              onClick={() => router.push('/more/exercises')}
-              className="underline hover:text-amber-300"
-            >
-              Review
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Exercises */}
-      {workout.exercises.map((ex: {
-        id: string;
-        exercise: { id: string; canonicalName: string; primaryMuscle: string | null };
-        rawName: string;
-        sets: Array<{
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-400">
+          Exercises ({workout.exercises.length})
+        </h2>
+        {workout.exercises.map((we: {
           id: string;
-          setIndex: number;
-          setType: string;
-          weightKg: number | null;
-          reps: number | null;
-          rpe: number | null;
-          isPersonalRecord: boolean;
-        }>;
-      }) => {
-        const comp = comparison?.find(
-          (c: { exerciseName: string }) => c.exerciseName === ex.exercise.canonicalName
-        );
-
-        return (
-          <div key={ex.id} className="card">
-            <div className="flex items-center justify-between mb-2">
-              <button
-                onClick={() => router.push(`/exercise/${ex.exercise.id}`)}
-                className="text-left"
-              >
-                <h3 className="font-semibold text-sm">{ex.exercise.canonicalName}</h3>
-                {ex.exercise.primaryMuscle && (
-                  <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                    {ex.exercise.primaryMuscle}
-                  </span>
-                )}
-              </button>
-              {comp?.volumeChange !== null && comp?.volumeChange !== undefined && (
-                <span className={`badge ${comp.volumeChange >= 0 ? 'badge-success' : 'badge-warning'}`}>
-                  {comp.volumeChange > 0 ? '+' : ''}{comp.volumeChange}%
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-1">
-              {ex.sets.map((set) => (
-                <div key={set.id} className="flex items-center gap-3 py-1 text-sm">
-                  <span className="w-6 text-center text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                    {set.setType === 'WARMUP' ? 'W' : set.setIndex + 1}
-                  </span>
-                  <span className="flex-1">
-                    {set.weightKg !== null ? `${set.weightKg} kg` : '—'}
-                    {' × '}
-                    {set.reps !== null ? `${set.reps}` : '—'}
-                  </span>
-                  {set.rpe !== null && (
-                    <span className="text-xs" style={{ color: 'var(--color-text-tertiary)' }}>
-                      @{set.rpe}
+          exerciseId: string;
+          exercise: { canonicalName: string; primaryMuscle: string | null };
+          sets: Array<{
+            id: string;
+            setIndex: number;
+            weightKg: number | null;
+            reps: number | null;
+            isPersonalRecord: boolean;
+          }>;
+        }) => {
+          const comp = comparison?.[we.exerciseId];
+          return (
+            <div key={we.id} className="card p-3.5 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3
+                    onClick={() => router.push(`/exercise/${we.exerciseId}`)}
+                    className="font-bold text-sm text-white hover:text-indigo-400 cursor-pointer"
+                  >
+                    {we.exercise.canonicalName}
+                  </h3>
+                  {we.exercise.primaryMuscle && (
+                    <span className="text-[11px] text-zinc-400">
+                      {we.exercise.primaryMuscle}
                     </span>
                   )}
-                  {set.isPersonalRecord && (
-                    <span className="badge badge-accent text-xs">PR</span>
-                  )}
                 </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
+                {comp?.previous && (
+                  <span className="text-xs text-zinc-400">
+                    Prev: {comp.previous.maxWeightKg}kg × {comp.previous.maxReps}
+                  </span>
+                )}
+              </div>
 
-      {/* Bottom Sheet Detail */}
-      <MuscleMapSheet
-        muscle={selectedMuscle}
-        onClose={() => setSelectedMuscle(null)}
-        onViewExercise={(exId) => {
-          setSelectedMuscle(null);
-          router.push(`/exercise/${exId}`);
-        }}
-      />
+              {/* Sets Table */}
+              <div className="space-y-1">
+                {we.sets.map((set) => (
+                  <div
+                    key={set.id}
+                    className="flex items-center justify-between text-xs py-1 px-2 rounded bg-white/[0.02]"
+                  >
+                    <span className="text-zinc-500 font-mono w-6">
+                      #{set.setIndex + 1}
+                    </span>
+                    <span className="font-semibold text-zinc-200">
+                      {set.weightKg ? `${set.weightKg} kg` : 'Bodyweight'}
+                    </span>
+                    <span className="text-zinc-300">
+                      {set.reps ? `${set.reps} reps` : ''}
+                    </span>
+                    {set.isPersonalRecord && (
+                      <span className="badge badge-accent text-[10px]">PR</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Interactive Muscle Detail Sheet */}
+      {selectedMuscle && (
+        <MuscleMapSheet
+          muscle={selectedMuscle}
+          onClose={() => setSelectedMuscle(null)}
+          onViewExercise={(exId: string) => {
+            setSelectedMuscle(null);
+            router.push(`/exercise/${exId}`);
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+export default function WorkoutDetailPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="page-content space-y-4">
+          <div className="h-6 w-32 bg-white/10 rounded animate-pulse" />
+          <div className="grid grid-cols-3 gap-3">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="card-compact h-16 bg-white/5 animate-pulse rounded-xl" />
+            ))}
+          </div>
+        </div>
+      }
+    >
+      <WorkoutDetailContent />
+    </Suspense>
   );
 }

@@ -126,9 +126,11 @@ export default function ExercisesPage() {
       </div>
 
       {/* Content */}
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 size={24} className="animate-spin text-zinc-500" />
+      {isLoading && !data ? (
+        <div className="space-y-3">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="card h-24 bg-white/5 rounded-xl animate-pulse" />
+          ))}
         </div>
       ) : filteredExercises.length === 0 ? (
         <div className="card text-center py-8">

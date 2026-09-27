@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
 import { ClipboardPaste, X, Loader2, AlertTriangle, FileText } from 'lucide-react';
 
+import { parseHevyText } from '@/lib/parser';
+
 interface ImportSheetProps {
   open: boolean;
   onClose: () => void;
@@ -64,9 +66,29 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
   }, []);
 
   const handleParse = () => {
-    if (text.trim()) {
-      parseMutation.mutate(text.trim());
+    const trimmed = text.trim();
+    if (!trimmed) return;
+
+    // 1. Instant client-side deterministic parsing
+    try {
+      const localResult = parseHevyText(trimmed);
+      if (localResult.workout && localResult.workout.exercises.length > 0) {
+        const params = new URLSearchParams({
+          rawText: trimmed,
+          data: JSON.stringify(localResult.workout),
+          warnings: JSON.stringify(localResult.warnings ?? []),
+        });
+        onClose();
+        setText('');
+        router.push(`/review?${params.toString()}`);
+        return;
+      }
+    } catch {
+      // Ignore local error and fallback to server
     }
+
+    // 2. Server fallback (handles ambiguous AI parsing and duplicate verification)
+    parseMutation.mutate(trimmed);
   };
 
   if (!open) return null;

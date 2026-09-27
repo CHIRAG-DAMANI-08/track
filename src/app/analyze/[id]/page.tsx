@@ -1,8 +1,8 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useQuery, useMutation } from '@tanstack/react-query';
-import { ArrowLeft, Brain, Loader2, Check, AlertTriangle, TrendingUp, Lightbulb, Star } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
+import { ArrowLeft, Brain, Loader2, Check, AlertTriangle, TrendingUp, Lightbulb } from 'lucide-react';
 import { useEffect } from 'react';
 
 export default function AnalyzePage() {

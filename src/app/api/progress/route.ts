@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import {
   getWeeklyVolumeTrends,
-  getMuscleGroupExposure,
   getConsistencyMetrics,
   getPersonalRecords,
   getExerciseHistory,
@@ -105,16 +104,22 @@ export async function GET(request: Request) {
             workoutExercises: { some: {} },
           },
           select: { id: true, canonicalName: true },
+          take: 10,
         });
 
+        const histories = await Promise.all(
+          exercises.map((ex) => getExerciseHistory(ex.id, weeks))
+        );
+
         const strengthData = [];
-        for (const ex of exercises.slice(0, 10)) { // Limit to top 10
-          const history = await getExerciseHistory(ex.id, weeks);
+        for (let i = 0; i < exercises.length; i++) {
+          const ex = exercises[i];
+          const history = histories[i];
           if (history && history.entries.length > 0) {
             strengthData.push({
               exerciseId: ex.id,
               exerciseName: ex.canonicalName,
-              entries: history.entries.map(e => ({
+              entries: history.entries.map((e) => ({
                 date: e.date,
                 estimated1RM: e.estimated1RM,
                 bestWeight: e.bestSet?.weightKg ?? null,

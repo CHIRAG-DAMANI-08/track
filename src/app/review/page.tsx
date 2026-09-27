@@ -2,18 +2,20 @@
 
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useState, useCallback, Suspense } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Save, Brain, Loader2, Trash2, Plus,
-  AlertTriangle, Check
+  AlertTriangle
 } from 'lucide-react';
 import type { ParsedWorkout, ParsedExercise } from '@/lib/schemas';
 
 function ReviewContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const queryClient = useQueryClient();
 
   const importId = searchParams.get('importId') ?? '';
+  const rawText = searchParams.get('rawText') ?? '';
   const workoutDataStr = searchParams.get('data') ?? '{}';
   const warningsStr = searchParams.get('warnings') ?? '[]';
 
@@ -42,7 +44,8 @@ function ReviewContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'save',
-          rawImportId: importId,
+          rawImportId: importId || undefined,
+          rawText: rawText || undefined,
           workout,
         }),
       });
@@ -53,10 +56,24 @@ function ReviewContent() {
       return res.json();
     },
     onSuccess: async (data) => {
-      if (analyzeAfterSave && data.workout?.id) {
-        router.push(`/analyze/${data.workout.id}`);
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+      queryClient.invalidateQueries({ queryKey: ['workouts'] });
+      queryClient.invalidateQueries({ queryKey: ['progress'] });
+
+      const workoutId = data.workout?.id;
+      if (analyzeAfterSave && workoutId) {
+        // Asynchronous background AI analysis — never blocks UI or navigation
+        fetch('/api/workouts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'analyze', workoutId }),
+        }).catch((err) => console.warn('Background AI analysis error:', err));
+
+        router.push(`/workout/${workoutId}?justSaved=true&analyzing=true`);
+      } else if (workoutId) {
+        router.push(`/workout/${workoutId}?justSaved=true`);
       } else {
-        router.push(`/workout/${data.workout.id}`);
+        router.push('/');
       }
     },
   });

@@ -29,13 +29,25 @@ import {
   ResponsiveContainer,
   CartesianGrid,
 } from 'recharts';
+import dynamic from 'next/dynamic';
 import {
-  MuscleMap,
   MuscleMapSheet,
   type MuscleExposureDetail,
   type MuscleMapState,
 } from '@/components/anatomy';
 import type { CoachRead } from '@/ai/muscle-coach-read';
+
+const DynamicMuscleMap = dynamic(
+  () => import('@/components/anatomy').then((m) => m.MuscleMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full flex items-center justify-center rounded-xl bg-white/[0.02] border border-white/5 animate-pulse min-h-[300px]">
+        <span className="text-xs text-zinc-500 font-medium">Loading anatomy...</span>
+      </div>
+    ),
+  }
+);
 
 type TabKey = 'muscles' | 'volume' | 'strength' | 'frequency' | 'consistency';
 const TABS: { key: TabKey; label: string; icon: typeof Target }[] = [
@@ -241,7 +253,7 @@ function WeeklyMuscleCoverageView({
       <div className="space-y-4">
         <div className="card text-center py-8">
           <div className="max-w-[280px] mx-auto mb-4 opacity-40">
-            <MuscleMap bodyState={{}} hasData={false} showControls={false} showLegend={false} compact={true} />
+            <DynamicMuscleMap bodyState={{}} hasData={false} showControls={false} showLegend={false} compact={true} />
           </div>
           <Target className="mx-auto mb-2 text-zinc-500" size={28} />
           <h3 className="font-semibold text-base mb-1">Your muscle map will appear after you import your first workout.</h3>
@@ -270,7 +282,7 @@ function WeeklyMuscleCoverageView({
             </div>
           </div>
           <div className="my-2">
-            <MuscleMap bodyState={{}} hasData={false} showControls={true} showLegend={false} />
+            <DynamicMuscleMap bodyState={{}} hasData={false} showControls={true} showLegend={false} />
           </div>
         </div>
 
@@ -329,7 +341,7 @@ function WeeklyMuscleCoverageView({
 
         {/* Dynamic interactive body map */}
         <div className="my-2">
-          <MuscleMap
+          <DynamicMuscleMap
             bodyState={muscleMapState?.bodyState ?? {}}
             selectedMuscleId={selectedMuscleId}
             onSelectMuscle={handleSelectMuscle}
@@ -675,7 +687,7 @@ function VolumeChart({ range }: { range: string }) {
                 fontSize: '12px',
               }}
               labelStyle={{ color: '#a0a0b0' }}
-              formatter={(val: any) => [
+              formatter={(val: unknown) => [
                 `${Number(val ?? 0).toLocaleString()} kg`,
                 'Volume',
               ]}
@@ -704,7 +716,7 @@ function VolumeChart({ range }: { range: string }) {
                 fontSize: '12px',
               }}
               labelStyle={{ color: '#a0a0b0' }}
-              formatter={(val: any) => [
+              formatter={(val: unknown) => [
                 `${Number(val ?? 0).toLocaleString()} kg`,
                 'Volume',
               ]}
@@ -856,7 +868,7 @@ function FrequencyChart({ range }: { range: string }) {
                 borderRadius: '10px',
                 fontSize: '12px',
               }}
-              formatter={(val: any) => [`${val ?? 0} sessions`, 'Frequency']}
+              formatter={(val: unknown) => [`${val ?? 0} sessions`, 'Frequency']}
             />
             <Area
               type="monotone"
@@ -881,7 +893,7 @@ function FrequencyChart({ range }: { range: string }) {
                 borderRadius: '10px',
                 fontSize: '12px',
               }}
-              formatter={(val: any) => [`${val ?? 0} sessions`, 'Frequency']}
+              formatter={(val: unknown) => [`${val ?? 0} sessions`, 'Frequency']}
             />
             <Bar dataKey="sessions" fill="#34d399" radius={[4, 4, 0, 0]} />
           </BarChart>

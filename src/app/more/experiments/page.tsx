@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, FlaskConical, Loader2, Plus, Check, Pause, X } from 'lucide-react';
+import { ArrowLeft, FlaskConical, Plus, Pause, X } from 'lucide-react';
 import { useState } from 'react';
 import { format } from 'date-fns';
 
@@ -39,9 +39,11 @@ export default function ExperimentsPage() {
         </button>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-8">
-          <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+      {isLoading && !data ? (
+        <div className="space-y-3 mt-4">
+          {[1, 2].map((i) => (
+            <div key={i} className="card h-24 bg-white/5 rounded-xl animate-pulse" />
+          ))}
         </div>
       ) : experiments.length === 0 ? (
         <div className="empty-state">
@@ -93,7 +95,29 @@ function Section({ title, experiments, queryClient }: {
       });
       if (!res.ok) throw new Error('Failed');
     },
-    onSuccess: () => {
+    onMutate: async ({ id, status }) => {
+      await queryClient.cancelQueries({ queryKey: ['experiments'] });
+      const prevData = queryClient.getQueryData(['experiments']);
+      queryClient.setQueryData<{ experiments?: Array<{ id: string; status: string }> }>(
+        ['experiments'],
+        (old) => {
+          if (!old?.experiments) return old;
+          return {
+            ...old,
+            experiments: old.experiments.map((e) =>
+              e.id === id ? { ...e, status } : e
+            ),
+          };
+        }
+      );
+      return { prevData };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.prevData) {
+        queryClient.setQueryData(['experiments'], context.prevData);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['experiments'] });
     },
   });

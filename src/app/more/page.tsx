@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import {
-  Brain, FlaskConical, User, FileText, Dumbbell, Settings, Download, ChevronRight
+  Brain, FlaskConical, User, FileText, Dumbbell, Download, ChevronRight
 } from 'lucide-react';
 
 const menuItems = [

@@ -450,7 +450,6 @@ export async function getConsistencyMetrics(): Promise<ConsistencyMetrics> {
 
   // Current streak: count back from latest week
   const now = new Date();
-  const currentWeekKey = getWeekStart(now).toISOString().slice(0, 10);
   const lastWeekKey = sortedWeeks[sortedWeeks.length - 1];
 
   // If the latest workout week is this week or last week, start counting
@@ -499,44 +498,66 @@ export interface WorkoutComparison {
   weightChange: number | null;
 }
 
-export async function compareWithPrevious(workoutId: string): Promise<WorkoutComparison[]> {
-  const current = await prisma.workout.findUnique({
-    where: { id: workoutId },
-    include: {
-      exercises: {
+export interface CompareWorkoutInput {
+  id: string;
+  performedAt: Date;
+  exercises: Array<{
+    exerciseId: string;
+    exercise: { canonicalName: string };
+    sets: Array<{ setType: string; weightKg: number | null; reps: number | null }>;
+  }>;
+}
+
+export async function compareWithPrevious(
+  workoutOrId: string | CompareWorkoutInput
+): Promise<WorkoutComparison[]> {
+  const current =
+    typeof workoutOrId === 'object' && workoutOrId !== null
+      ? (workoutOrId as CompareWorkoutInput)
+      : await prisma.workout.findUnique({
+          where: { id: workoutOrId },
+          include: {
+            exercises: {
+              include: {
+                sets: true,
+                exercise: true,
+              },
+            },
+          },
+        });
+  if (!current || !current.exercises) return [];
+
+  // Run all previous exercise lookups in parallel
+  const previousResults = await Promise.all(
+    current.exercises.map((ex: CompareWorkoutInput['exercises'][number]) =>
+      prisma.workoutExercise.findFirst({
+        where: {
+          exerciseId: ex.exerciseId,
+          workout: {
+            performedAt: { lt: current.performedAt },
+          },
+        },
         include: {
           sets: true,
-          exercise: true,
+          workout: { select: { performedAt: true } },
         },
-      },
-    },
-  });
-  if (!current) return [];
+        orderBy: { workout: { performedAt: 'desc' } },
+      })
+    )
+  );
 
   const comparisons: WorkoutComparison[] = [];
 
-  for (const ex of current.exercises) {
-    // Find the most recent previous instance of this exercise
-    const previousWe = await prisma.workoutExercise.findFirst({
-      where: {
-        exerciseId: ex.exerciseId,
-        workout: {
-          performedAt: { lt: current.performedAt },
-        },
-      },
-      include: {
-        sets: true,
-        workout: { select: { performedAt: true } },
-      },
-      orderBy: { workout: { performedAt: 'desc' } },
-    });
+  for (let i = 0; i < current.exercises.length; i++) {
+    const ex = current.exercises[i];
+    const previousWe = previousResults[i];
 
-    const currentSets = ex.sets.filter(s => s.setType !== 'WARMUP');
-    const currentTopWeight = currentSets.reduce((max, s) =>
+    const currentSets = ex.sets.filter((s: { setType: string }) => s.setType !== 'WARMUP');
+    const currentTopWeight = currentSets.reduce((max: number | null, s: { weightKg: number | null }) =>
       s.weightKg && s.weightKg > (max ?? 0) ? s.weightKg : max, null as number | null);
-    const currentTopReps = currentSets.reduce((max, s) =>
+    const currentTopReps = currentSets.reduce((max: number | null, s: { reps: number | null }) =>
       s.reps && s.reps > (max ?? 0) ? s.reps : max, null as number | null);
-    const currentVolume = currentSets.reduce((sum, s) =>
+    const currentVolume = currentSets.reduce((sum: number, s: { weightKg: number | null; reps: number | null }) =>
       sum + (s.weightKg ?? 0) * (s.reps ?? 0), 0);
 
     let previous: WorkoutComparison['previous'] = null;
@@ -544,12 +565,12 @@ export async function compareWithPrevious(workoutId: string): Promise<WorkoutCom
     let weightChange: number | null = null;
 
     if (previousWe) {
-      const prevSets = previousWe.sets.filter(s => s.setType !== 'WARMUP');
-      const prevTopWeight = prevSets.reduce((max, s) =>
+      const prevSets = previousWe.sets.filter((s: { setType: string }) => s.setType !== 'WARMUP');
+      const prevTopWeight = prevSets.reduce((max: number | null, s: { weightKg: number | null }) =>
         s.weightKg && s.weightKg > (max ?? 0) ? s.weightKg : max, null as number | null);
-      const prevTopReps = prevSets.reduce((max, s) =>
+      const prevTopReps = prevSets.reduce((max: number | null, s: { reps: number | null }) =>
         s.reps && s.reps > (max ?? 0) ? s.reps : max, null as number | null);
-      const prevVolume = prevSets.reduce((sum, s) =>
+      const prevVolume = prevSets.reduce((sum: number, s: { weightKg: number | null; reps: number | null }) =>
         sum + (s.weightKg ?? 0) * (s.reps ?? 0), 0);
 
       previous = {

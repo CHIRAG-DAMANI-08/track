@@ -2,12 +2,19 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Send, Loader2, Brain, AlertTriangle } from 'lucide-react';
+import { Send, Brain, AlertTriangle, Sparkles } from 'lucide-react';
+
+interface OptimisticMessage {
+  id: string;
+  role: 'USER' | 'COACH';
+  content: string;
+}
 
 export default function CoachPage() {
   const queryClient = useQueryClient();
   const [message, setMessage] = useState('');
   const [conversationId, setConversationId] = useState<string | undefined>();
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const { data: conversationsData } = useQuery({
@@ -17,9 +24,10 @@ export default function CoachPage() {
       if (!res.ok) throw new Error('Failed');
       return res.json();
     },
+    staleTime: 1000 * 60 * 5,
   });
 
-  const { data: conversationData, isLoading: messagesLoading } = useQuery({
+  const { data: conversationData } = useQuery({
     queryKey: ['coach-messages', conversationId],
     queryFn: async () => {
       if (!conversationId) return null;
@@ -28,6 +36,7 @@ export default function CoachPage() {
       return res.json();
     },
     enabled: !!conversationId,
+    staleTime: 1000 * 60 * 5,
   });
 
   const chatMutation = useMutation({
@@ -45,24 +54,42 @@ export default function CoachPage() {
     },
     onSuccess: (data) => {
       setConversationId(data.conversationId);
+      setOptimisticMessages([]);
       queryClient.invalidateQueries({ queryKey: ['coach-messages', data.conversationId] });
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
     },
+    onError: () => {
+      // Keep optimistic message so user can see what failed
+    },
   });
 
-  const handleSend = () => {
-    if (message.trim() && !chatMutation.isPending) {
-      chatMutation.mutate(message.trim());
-      setMessage('');
-    }
+  const messageCounterRef = useRef(0);
+
+  const handleSend = (textToSend?: string) => {
+    const text = textToSend ?? message;
+    const trimmed = text.trim();
+    if (!trimmed || chatMutation.isPending) return;
+
+    // 1. Optimistically append message immediately
+    messageCounterRef.current += 1;
+    const tempId = `optimistic-${messageCounterRef.current}`;
+    setOptimisticMessages((prev) => [
+      ...prev,
+      { id: tempId, role: 'USER', content: trimmed },
+    ]);
+    setMessage('');
+
+    // 2. Fire mutation
+    chatMutation.mutate(trimmed);
   };
+
+  const serverMessages = conversationData?.conversation?.messages ?? [];
+  const displayMessages = [...serverMessages, ...optimisticMessages];
+  const conversations = conversationsData?.conversations ?? [];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [conversationData]);
-
-  const messages = conversationData?.conversation?.messages ?? [];
-  const conversations = conversationsData?.conversations ?? [];
+  }, [displayMessages.length, chatMutation.isPending]);
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100dvh - 64px - env(safe-area-inset-bottom))' }}>
@@ -81,7 +108,7 @@ export default function CoachPage() {
 
       {/* Messages Area */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
-        {!conversationId && messages.length === 0 ? (
+        {!conversationId && displayMessages.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-center gap-4 py-8">
             <Brain size={40} style={{ color: 'var(--color-text-tertiary)', opacity: 0.3 }} />
             <div>
@@ -98,63 +125,40 @@ export default function CoachPage() {
             <div className="w-full max-w-sm space-y-2 mt-4">
               {[
                 'How has my training volume been trending?',
-                'What should I focus on in my next session?',
-                'Are there any muscles I\'m neglecting?',
-              ].map((prompt) => (
+                'Which muscle groups need more emphasis?',
+                'Am I progressing on my compound lifts?',
+                'Review my active training hypothesis',
+              ].map((starter) => (
                 <button
-                  key={prompt}
-                  className="btn-secondary w-full text-left text-sm"
-                  onClick={() => {
-                    setMessage(prompt);
-                  }}
+                  key={starter}
+                  onClick={() => handleSend(starter)}
+                  className="w-full text-left text-xs p-3 rounded-lg transition-colors hover:border-zinc-600 border border-white/5 bg-white/[0.02] text-zinc-300 hover:text-white"
                 >
-                  {prompt}
+                  &ldquo;{starter}&rdquo;
                 </button>
               ))}
             </div>
-
-            {/* Previous conversations */}
-            {conversations.length > 0 && (
-              <div className="w-full mt-6">
-                <p className="text-xs font-medium mb-2" style={{ color: 'var(--color-text-tertiary)' }}>
-                  Previous Conversations
-                </p>
-                <div className="space-y-2">
-                  {conversations.slice(0, 5).map((c: { id: string; title: string; messages: Array<{ content: string }> }) => (
-                    <button
-                      key={c.id}
-                      className="card-compact w-full text-left"
-                      onClick={() => setConversationId(c.id)}
-                    >
-                      <p className="text-sm font-medium truncate">{c.title ?? 'Conversation'}</p>
-                      {c.messages[0] && (
-                        <p className="text-xs truncate" style={{ color: 'var(--color-text-tertiary)' }}>
-                          {c.messages[0].content}
-                        </p>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         ) : (
           <>
-            {messages.map((msg: { id: string; role: string; content: string; structuredData: string | null }) => (
-              <div key={msg.id} className={`flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'}`}>
+            {displayMessages.map((msg, i) => (
+              <div
+                key={msg.id ?? i}
+                className={`flex ${msg.role === 'USER' ? 'justify-end' : 'justify-start'}`}
+              >
                 <div
                   className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-                    msg.role === 'USER'
-                      ? ''
-                      : ''
+                    msg.role === 'USER' ? 'text-right' : 'text-left'
                   }`}
                   style={{
-                    background: msg.role === 'USER'
-                      ? 'var(--color-accent)'
-                      : 'var(--color-surface-2)',
-                    color: msg.role === 'USER'
-                      ? 'var(--color-text-inverse)'
-                      : 'var(--color-text-primary)',
+                    background:
+                      msg.role === 'USER'
+                        ? 'var(--color-accent)'
+                        : 'var(--color-surface-2)',
+                    color:
+                      msg.role === 'USER'
+                        ? 'var(--color-text-inverse)'
+                        : 'var(--color-text-primary)',
                     borderBottomRightRadius: msg.role === 'USER' ? '4px' : undefined,
                     borderBottomLeftRadius: msg.role !== 'USER' ? '4px' : undefined,
                   }}
@@ -166,21 +170,33 @@ export default function CoachPage() {
 
             {chatMutation.isPending && (
               <div className="flex justify-start">
-                <div className="rounded-2xl px-4 py-3" style={{ background: 'var(--color-surface-2)' }}>
-                  <Loader2 size={16} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+                <div className="flex items-center gap-2 rounded-2xl px-3.5 py-2.5 bg-zinc-800/90 border border-white/10 text-zinc-300 text-xs">
+                  <Sparkles size={13} className="text-amber-400 animate-spin" />
+                  <span>Coach is analyzing...</span>
                 </div>
               </div>
             )}
 
             {chatMutation.isError && (
               <div className="p-3 rounded-lg" style={{ background: 'var(--color-error-muted)' }}>
-                <div className="flex items-center gap-2">
-                  <AlertTriangle size={14} style={{ color: 'var(--color-error)' }} />
-                  <span className="text-sm" style={{ color: 'var(--color-error)' }}>
-                    {chatMutation.error instanceof Error
-                      ? chatMutation.error.message
-                      : 'Failed to get response'}
-                  </span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} style={{ color: 'var(--color-error)' }} />
+                    <span className="text-sm" style={{ color: 'var(--color-error)' }}>
+                      {chatMutation.error instanceof Error
+                        ? chatMutation.error.message
+                        : 'Failed to get response'}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const last = optimisticMessages[optimisticMessages.length - 1];
+                      if (last) chatMutation.mutate(last.content);
+                    }}
+                    className="text-xs text-amber-400 underline font-semibold"
+                  >
+                    Retry
+                  </button>
                 </div>
               </div>
             )}
@@ -208,7 +224,7 @@ export default function CoachPage() {
             placeholder="Ask your coach..."
           />
           <button
-            onClick={handleSend}
+            onClick={() => handleSend()}
             disabled={!message.trim() || chatMutation.isPending}
             className="btn-primary px-3"
             style={{ minHeight: '44px' }}
@@ -220,7 +236,10 @@ export default function CoachPage() {
 
         {conversationId && (
           <button
-            onClick={() => setConversationId(undefined)}
+            onClick={() => {
+              setConversationId(undefined);
+              setOptimisticMessages([]);
+            }}
             className="btn-ghost w-full mt-2 text-xs"
           >
             New Conversation

@@ -3,13 +3,13 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Loader2, Save, User, Target, Dumbbell, ShieldAlert, Sparkles, Check } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export default function ProfilePage() {
   const router = useRouter();
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const { data } = useQuery({
     queryKey: ['profile'],
     queryFn: async () => {
       const res = await fetch('/api/profile');
@@ -34,24 +34,24 @@ export default function ProfilePage() {
 
   const [showSavedToast, setShowSavedToast] = useState(false);
 
-  useEffect(() => {
-    if (data?.profile) {
-      const p = data.profile;
-      setForm({
-        firstName: p.firstName ?? 'Chirag',
-        displayName: p.displayName ?? 'Chirag',
-        trainingGoals: p.trainingGoals ?? '',
-        preferredTrainingStyle: p.preferredTrainingStyle ?? p.preferredSplit ?? '',
-        preferredTrainingFrequency: p.preferredTrainingFrequency ?? p.trainingFrequency ?? '',
-        equipmentContext: p.equipmentContext ?? '',
-        exercisePreferences: p.exercisePreferences ?? p.preferences ?? '',
-        exerciseDislikes: p.exerciseDislikes ?? p.dislikes ?? '',
-        constraints: p.constraints ?? '',
-        coachingPreferences: p.coachingPreferences ?? p.coachingNotes ?? '',
-        generalNotes: p.generalNotes ?? '',
-      });
-    }
-  }, [data]);
+  const [syncedProfile, setSyncedProfile] = useState<unknown>(null);
+  if (data?.profile && data.profile !== syncedProfile) {
+    setSyncedProfile(data.profile);
+    const p = data.profile;
+    setForm({
+      firstName: p.firstName ?? 'Chirag',
+      displayName: p.displayName ?? 'Chirag',
+      trainingGoals: p.trainingGoals ?? '',
+      preferredTrainingStyle: p.preferredTrainingStyle ?? p.preferredSplit ?? '',
+      preferredTrainingFrequency: p.preferredTrainingFrequency ?? p.trainingFrequency ?? '',
+      equipmentContext: p.equipmentContext ?? '',
+      exercisePreferences: p.exercisePreferences ?? p.preferences ?? '',
+      exerciseDislikes: p.exerciseDislikes ?? p.dislikes ?? '',
+      constraints: p.constraints ?? '',
+      coachingPreferences: p.coachingPreferences ?? p.coachingNotes ?? '',
+      generalNotes: p.generalNotes ?? '',
+    });
+  }
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -75,24 +75,24 @@ export default function ProfilePage() {
       if (!res.ok) throw new Error('Failed to save');
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
+    onMutate: () => {
+      // Optimistic instant feedback
       setShowSavedToast(true);
       setTimeout(() => setShowSavedToast(false), 2500);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (err) => {
+      setShowSavedToast(false);
+      alert('Failed to save profile: ' + (err instanceof Error ? err.message : 'Please try again.'));
     },
   });
 
   const updateField = (field: keyof typeof form, value: string) => {
     setForm(prev => ({ ...prev, [field]: value }));
   };
-
-  if (isLoading) {
-    return (
-      <div className="page-content flex items-center justify-center py-12">
-        <Loader2 size={24} className="animate-spin text-zinc-500" />
-      </div>
-    );
-  }
 
   return (
     <div className="page-content pb-24">

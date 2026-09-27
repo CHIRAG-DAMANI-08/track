@@ -100,9 +100,11 @@ export function MuscleMap({
   }, []);
 
   // Sync view state when initialView prop changes
-  useEffect(() => {
+  const [prevInitialView, setPrevInitialView] = useState(initialView);
+  if (prevInitialView !== initialView) {
+    setPrevInitialView(initialView);
     setView(initialView);
-  }, [initialView]);
+  }
 
   // Update chart view when view state changes
   useEffect(() => {

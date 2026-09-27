@@ -1,10 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect, useSyncExternalStore } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
-  Dumbbell,
   TrendingUp,
   TrendingDown,
   Minus,
@@ -13,47 +12,105 @@ import {
   ChevronRight,
   Target,
   Award,
-  Loader2,
   Calendar,
   Sparkles,
+  Dumbbell,
+  WifiOff,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { ImportSheet } from '@/components/import-sheet';
-import { MuscleMap } from '@/components/anatomy';
 import type { DashboardResponse } from '@/app/api/dashboard/route';
+
+// Lazy-load anatomy component so initial home paint is 0ms
+const DynamicMuscleMap = dynamic(
+  () => import('@/components/anatomy').then((mod) => mod.MuscleMap),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="w-full h-[115px] flex items-center justify-center rounded-lg bg-white/[0.02] border border-white/5 animate-pulse">
+        <span className="text-[10px] text-zinc-600 font-medium">Anatomy</span>
+      </div>
+    ),
+  }
+);
+
+function subscribeOffline(callback: () => void) {
+  window.addEventListener('online', callback);
+  window.addEventListener('offline', callback);
+  return () => {
+    window.removeEventListener('online', callback);
+    window.removeEventListener('offline', callback);
+  };
+}
+
+function getOfflineSnapshot() {
+  return typeof navigator !== 'undefined' ? !navigator.onLine : false;
+}
+
+function getOfflineServerSnapshot() {
+  return false;
+}
 
 export default function TodayPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [importOpen, setImportOpen] = useState(false);
   const [muscleView, setMuscleView] = useState<'FRONT' | 'BACK'>('FRONT');
+  const isOffline = useSyncExternalStore(subscribeOffline, getOfflineSnapshot, getOfflineServerSnapshot);
 
-  const { data, isLoading } = useQuery<DashboardResponse>({
+  // TanStack Query with background revalidation & cache persistence
+  const { data } = useQuery<DashboardResponse>({
     queryKey: ['dashboard'],
     queryFn: async () => {
       const res = await fetch('/api/dashboard');
       if (!res.ok) throw new Error('Failed to load dashboard');
       return res.json();
     },
-    staleTime: 1000 * 30, // 30 seconds
+    staleTime: 1000 * 60 * 5, // 5 minutes fresh
   });
 
-  if (isLoading || !data) {
-    return (
-      <div className="w-full h-[calc(100dvh-80px-env(safe-area-inset-bottom))] flex items-center justify-center">
-        <Loader2 size={24} className="animate-spin text-zinc-500" />
-      </div>
-    );
-  }
+  const latestWorkoutId = data?.latestWorkout?.id;
+
+  // Prefetch likely next screens for instant navigation
+  useEffect(() => {
+    router.prefetch('/progress');
+    router.prefetch('/coach');
+    if (latestWorkoutId) {
+      router.prefetch(`/workout/${latestWorkoutId}`);
+      queryClient.prefetchQuery({
+        queryKey: ['workout', latestWorkoutId],
+        queryFn: async () => {
+          const res = await fetch(`/api/workouts?id=${latestWorkoutId}`);
+          if (!res.ok) throw new Error('Prefetch failed');
+          return res.json();
+        },
+        staleTime: 1000 * 60 * 5,
+      });
+    }
+  }, [router, queryClient, latestWorkoutId]);
+
+  // Greeting fallback before any data loads
+  const greeting = data?.athlete.greeting ?? 'Welcome back, Chirag';
+  const subtext = data?.athlete.subtext ?? 'Fitness Command Center';
 
   return (
     <div className="w-full max-w-lg md:max-w-4xl mx-auto flex flex-col justify-between h-[calc(100dvh-80px-env(safe-area-inset-bottom))] max-h-[calc(100dvh-80px-env(safe-area-inset-bottom))] px-3.5 py-3 sm:px-4 sm:py-4 overflow-hidden md:h-auto md:max-h-none md:overflow-visible">
-      {/* 1. Header with clear readable typography */}
+      {/* 1. Header with clear readable typography & offline indicator */}
       <header className="flex items-center justify-between pb-2 shrink-0">
         <div>
-          <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-snug">
-            {data.athlete.greeting}
-          </h1>
+          <div className="flex items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-snug">
+              {greeting}
+            </h1>
+            {isOffline && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-zinc-400">
+                <WifiOff size={10} />
+                Offline
+              </span>
+            )}
+          </div>
           <p className="text-xs sm:text-sm text-zinc-400 font-medium">
-            {data.athlete.subtext}
+            {subtext}
           </p>
         </div>
         <button
@@ -65,9 +122,9 @@ export default function TodayPage() {
         </button>
       </header>
 
-      {/* 2. Responsive Command Center Grid */}
+      {/* 2. Responsive Command Center Grid (Never full-screen blocked) */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 flex-1 min-h-0 items-stretch">
-        {/* CARD 1 — TRAINING (Workouts this week + day dots) */}
+        {/* CARD 1 — TRAINING */}
         <div
           className="card p-3 flex flex-col justify-between cursor-pointer hover:border-white/20 transition-colors"
           onClick={() => router.push('/progress')}
@@ -82,41 +139,63 @@ export default function TodayPage() {
           </div>
 
           <div className="my-auto py-1">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-white leading-none">
-                {data.training.workoutsThisWeek}
-              </span>
-              <span className="text-xs font-semibold text-zinc-300">
-                workouts
-              </span>
-            </div>
-            <span className="text-xs text-zinc-400 font-medium block mt-0.5">
-              This week
-            </span>
+            {data ? (
+              <>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-black text-white leading-none">
+                    {data.training.workoutsThisWeek}
+                  </span>
+                  <span className="text-xs font-semibold text-zinc-300">
+                    workouts
+                  </span>
+                </div>
+                <span className="text-xs text-zinc-400 font-medium block mt-0.5">
+                  This week
+                </span>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <div className="h-7 w-12 bg-white/10 rounded animate-pulse" />
+                <div className="h-3 w-16 bg-white/5 rounded animate-pulse" />
+              </div>
+            )}
           </div>
 
           {/* M T W T F S S Day tracker dots */}
           <div className="flex items-center justify-between pt-2 border-t border-white/5">
-            {data.training.weekDays.map((d, i) => (
-              <div key={i} className="flex flex-col items-center gap-1">
-                <span className={`text-[10px] font-bold ${d.isToday ? 'text-amber-400 font-black' : 'text-zinc-400'}`}>
-                  {d.day}
-                </span>
-                <span
-                  className={`w-2 h-2 rounded-full ${
-                    d.active
-                      ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]'
-                      : d.isToday
-                      ? 'bg-amber-400/40 ring-1.5 ring-amber-400'
-                      : 'bg-white/15'
-                  }`}
-                />
-              </div>
-            ))}
+            {data?.training.weekDays ? (
+              data.training.weekDays.map((d, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <span
+                    className={`text-[10px] font-bold ${
+                      d.isToday ? 'text-amber-400 font-black' : 'text-zinc-400'
+                    }`}
+                  >
+                    {d.day}
+                  </span>
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      d.active
+                        ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]'
+                        : d.isToday
+                        ? 'bg-amber-400/40 ring-1.5 ring-amber-400'
+                        : 'bg-white/15'
+                    }`}
+                  />
+                </div>
+              ))
+            ) : (
+              ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((day, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <span className="text-[10px] font-bold text-zinc-500">{day}</span>
+                  <span className="w-2 h-2 rounded-full bg-white/10" />
+                </div>
+              ))
+            )}
           </div>
         </div>
 
-        {/* CARD 2 — RECORDS / PRs (with dynamic fallback if 0 PRs) */}
+        {/* CARD 2 — RECORDS / PRs */}
         <div
           className="card p-3 flex flex-col justify-between cursor-pointer hover:border-white/20 transition-colors"
           onClick={() => router.push('/progress')}
@@ -125,9 +204,9 @@ export default function TodayPage() {
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-zinc-400">
-              {data.records.label}
+              {data?.records.label ?? 'Records'}
             </span>
-            {data.records.type === 'prs' ? (
+            {data?.records.type === 'prs' ? (
               <Award size={15} className="text-amber-400" />
             ) : (
               <Dumbbell size={15} className="text-zinc-400" />
@@ -135,17 +214,28 @@ export default function TodayPage() {
           </div>
 
           <div className="my-auto py-1">
-            <div className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-white leading-none">
-                {data.records.value}
-              </span>
-              <span className="text-xs font-semibold text-zinc-300">
-                {data.records.sublabel}
-              </span>
-            </div>
-            <span className="text-xs text-zinc-400 font-medium block mt-0.5">
-              {data.records.type === 'prs' ? 'Personal Records' : `${data.training.volumeThisWeek.toLocaleString()} kg volume`}
-            </span>
+            {data ? (
+              <>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-3xl font-black text-white leading-none">
+                    {data.records.value}
+                  </span>
+                  <span className="text-xs font-semibold text-zinc-300">
+                    {data.records.sublabel}
+                  </span>
+                </div>
+                <span className="text-xs text-zinc-400 font-medium block mt-0.5">
+                  {data.records.type === 'prs'
+                    ? 'Personal Records'
+                    : `${data.training.volumeThisWeek.toLocaleString()} kg volume`}
+                </span>
+              </>
+            ) : (
+              <div className="space-y-1">
+                <div className="h-7 w-12 bg-white/10 rounded animate-pulse" />
+                <div className="h-3 w-20 bg-white/5 rounded animate-pulse" />
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs text-zinc-400 font-medium">
@@ -200,54 +290,72 @@ export default function TodayPage() {
             </div>
           </div>
 
-          {data.muscleCoverage.hasData ? (
-            <div className="grid grid-cols-12 gap-3 items-center my-auto">
-              {/* Left: Mini Anatomy Viewport */}
-              <div className="col-span-5 flex items-center justify-center">
-                <div className="w-full flex items-center justify-center">
-                  <MuscleMap
-                    bodyState={data.muscleCoverage.bodyState}
-                    initialView={muscleView}
-                    compact={true}
-                    showControls={false}
-                    showLegend={false}
-                    viewportHeight="115px"
-                  />
+          {data ? (
+            data.muscleCoverage.hasData ? (
+              <div className="grid grid-cols-12 gap-3 items-center my-auto">
+                {/* Left: Mini Anatomy Viewport */}
+                <div className="col-span-5 flex items-center justify-center">
+                  <div className="w-full flex items-center justify-center">
+                    <DynamicMuscleMap
+                      bodyState={data.muscleCoverage.bodyState}
+                      initialView={muscleView}
+                      compact={true}
+                      showControls={false}
+                      showLegend={false}
+                      viewportHeight="115px"
+                    />
+                  </div>
+                </div>
+
+                {/* Right: Top 3 Muscle Bars */}
+                <div className="col-span-7 space-y-2 pl-1">
+                  {data.muscleCoverage.topMuscles.map((m, idx) => (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-semibold text-zinc-100 truncate">
+                          {m.displayName}
+                        </span>
+                        <span className="text-xs font-bold text-indigo-300">
+                          {m.sets} sets
+                        </span>
+                      </div>
+                      <div className="h-2 w-full bg-white/[0.08] rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.4)]"
+                          style={{ width: `${m.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
-
-              {/* Right: Top 3 Muscle Bars */}
-              <div className="col-span-7 space-y-2 pl-1">
-                {data.muscleCoverage.topMuscles.map((m, idx) => (
-                  <div key={idx} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-semibold text-zinc-100 truncate">{m.displayName}</span>
-                      <span className="text-xs font-bold text-indigo-300">{m.sets} sets</span>
-                    </div>
-                    <div className="h-2 w-full bg-white/[0.08] rounded-full overflow-hidden">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 shadow-[0_0_8px_rgba(99,102,241,0.4)]"
-                        style={{ width: `${m.percentage}%` }}
-                      />
-                    </div>
+            ) : (
+              <div className="py-4 text-center">
+                <p className="text-xs text-zinc-400 mb-1.5">Import your first workout</p>
+                <button
+                  onClick={() => setImportOpen(true)}
+                  className="text-xs text-indigo-400 font-semibold underline"
+                >
+                  + Import Hevy
+                </button>
+              </div>
+            )
+          ) : (
+            <div className="grid grid-cols-12 gap-3 items-center my-auto">
+              <div className="col-span-5 h-[115px] bg-white/[0.02] rounded-lg animate-pulse" />
+              <div className="col-span-7 space-y-3">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="space-y-1">
+                    <div className="h-3 w-20 bg-white/10 rounded animate-pulse" />
+                    <div className="h-2 w-full bg-white/5 rounded-full animate-pulse" />
                   </div>
                 ))}
               </div>
             </div>
-          ) : (
-            <div className="py-4 text-center">
-              <p className="text-xs text-zinc-400 mb-1.5">Import your first workout</p>
-              <button
-                onClick={() => setImportOpen(true)}
-                className="text-xs text-indigo-400 font-semibold underline"
-              >
-                + Import Hevy
-              </button>
-            </div>
           )}
         </div>
 
-        {/* CARD 4 — STRENGTH MOVERS (Col 1, 3 trends from history) */}
+        {/* CARD 4 — STRENGTH MOVERS */}
         <div
           className="card p-3 flex flex-col justify-between cursor-pointer hover:border-white/20 transition-colors"
           onClick={() => router.push('/progress')}
@@ -261,35 +369,43 @@ export default function TodayPage() {
             <TrendingUp size={14} className="text-emerald-400" />
           </div>
 
-          {data.strengthMovers.length > 0 ? (
-            <div className="space-y-1.5 my-auto">
-              {data.strengthMovers.map((item, idx) => (
-                <div key={idx} className="flex items-center justify-between text-xs">
-                  <span className="text-zinc-200 truncate font-medium max-w-[95px]">
-                    {item.exerciseName}
-                  </span>
-                  <span
-                    className={`font-bold flex items-center gap-0.5 text-xs ${
-                      item.trend === 'up'
-                        ? 'text-emerald-400'
-                        : item.trend === 'down'
-                        ? 'text-amber-400'
-                        : 'text-zinc-400'
-                    }`}
-                  >
-                    {item.trend === 'up' && <TrendingUp size={11} />}
-                    {item.trend === 'down' && <TrendingDown size={11} />}
-                    {item.trend === 'stable' && <Minus size={11} />}
-                    {item.changeText}
-                  </span>
-                </div>
-              ))}
-            </div>
+          {data ? (
+            data.strengthMovers.length > 0 ? (
+              <div className="space-y-1.5 my-auto">
+                {data.strengthMovers.map((item, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-xs">
+                    <span className="text-zinc-200 truncate font-medium max-w-[95px]">
+                      {item.exerciseName}
+                    </span>
+                    <span
+                      className={`font-bold flex items-center gap-0.5 text-xs ${
+                        item.trend === 'up'
+                          ? 'text-emerald-400'
+                          : item.trend === 'down'
+                          ? 'text-amber-400'
+                          : 'text-zinc-400'
+                      }`}
+                    >
+                      {item.trend === 'up' && <TrendingUp size={11} />}
+                      {item.trend === 'down' && <TrendingDown size={11} />}
+                      {item.trend === 'stable' && <Minus size={11} />}
+                      {item.changeText}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="my-auto py-1">
+                <p className="text-xs text-zinc-400 font-medium">
+                  Not enough history yet.
+                </p>
+              </div>
+            )
           ) : (
-            <div className="my-auto py-1">
-              <p className="text-xs text-zinc-400 font-medium">
-                Not enough history yet.
-              </p>
+            <div className="space-y-2 my-auto">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-3.5 bg-white/5 rounded animate-pulse" />
+              ))}
             </div>
           )}
 
@@ -299,10 +415,10 @@ export default function TodayPage() {
           </div>
         </div>
 
-        {/* CARD 5 — COACH SNAPSHOT (Col 2, single current insight) */}
+        {/* CARD 5 — COACH SNAPSHOT (Independent AI card) */}
         <div
           className="card p-3 flex flex-col justify-between cursor-pointer hover:border-white/20 transition-colors"
-          onClick={() => router.push(data.coachSnapshot.ctaHref)}
+          onClick={() => router.push(data?.coachSnapshot.ctaHref ?? '/coach')}
           role="button"
           tabIndex={0}
         >
@@ -317,65 +433,86 @@ export default function TodayPage() {
           </div>
 
           <div className="my-auto py-1">
-            <p className="text-xs sm:text-[13px] text-zinc-200 leading-snug line-clamp-3 font-normal">
-              &ldquo;{data.coachSnapshot.insight}&rdquo;
-            </p>
+            {data ? (
+              <p className="text-xs sm:text-[13px] text-zinc-200 leading-snug line-clamp-3 font-normal">
+                &ldquo;{data.coachSnapshot.insight}&rdquo;
+              </p>
+            ) : (
+              <div className="flex items-center gap-2 text-zinc-400 text-xs py-1">
+                <Sparkles size={12} className="text-amber-400 animate-spin" />
+                <span>Checking insights...</span>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-between pt-2 border-t border-white/5 text-xs font-bold text-amber-400">
-            <span>{data.coachSnapshot.ctaText}</span>
+            <span>{data?.coachSnapshot.ctaText ?? 'Ask Coach'}</span>
             <ChevronRight size={13} />
           </div>
         </div>
 
-        {/* CARD 6 — LAST WORKOUT / IMPORT (Span 2 columns, full width compact) */}
+        {/* CARD 6 — LAST WORKOUT / IMPORT */}
         <div className="card col-span-2 md:col-span-4 p-3 flex items-center justify-between gap-3">
-          {data.latestWorkout ? (
-            <>
-              <div
-                className="flex-1 min-w-0 cursor-pointer"
-                onClick={() => router.push(`/workout/${data.latestWorkout!.id}`)}
-              >
-                <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-0.5">
-                  Last Workout
-                </span>
-                <h4 className="text-sm sm:text-base font-bold text-white truncate">
-                  {data.latestWorkout.name}
-                </h4>
-                <span className="text-xs text-zinc-400">
-                  {data.latestWorkout.formattedDate} · {data.latestWorkout.setsCount} sets
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
+          {data ? (
+            data.latestWorkout ? (
+              <>
+                <div
+                  className="flex-1 min-w-0 cursor-pointer"
                   onClick={() => router.push(`/workout/${data.latestWorkout!.id}`)}
-                  className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-200 transition-colors"
                 >
-                  View
-                </button>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block mb-0.5">
+                    Last Workout
+                  </span>
+                  <h4 className="text-sm sm:text-base font-bold text-white truncate">
+                    {data.latestWorkout.name}
+                  </h4>
+                  <span className="text-xs text-zinc-400">
+                    {data.latestWorkout.formattedDate} · {data.latestWorkout.setsCount} sets
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => router.push(`/workout/${data.latestWorkout!.id}`)}
+                    className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-200 transition-colors"
+                  >
+                    View
+                  </button>
+                  <button
+                    onClick={() => setImportOpen(true)}
+                    className="btn-primary text-xs py-2 px-3.5 min-h-[36px] font-bold shadow-sm flex items-center gap-1.5"
+                  >
+                    <Plus size={15} />
+                    <span>Import Hevy</span>
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="w-full flex items-center justify-between">
+                <div>
+                  <span className="text-sm font-bold text-white block">
+                    Import Your First Workout
+                  </span>
+                  <span className="text-xs text-zinc-400">
+                    Paste a Hevy workout to start tracking
+                  </span>
+                </div>
                 <button
                   onClick={() => setImportOpen(true)}
-                  className="btn-primary text-xs py-2 px-3.5 min-h-[36px] font-bold shadow-sm flex items-center gap-1.5"
+                  className="btn-primary text-xs py-2 px-3.5 min-h-[36px] font-bold"
                 >
                   <Plus size={15} />
                   <span>Import Hevy</span>
                 </button>
               </div>
-            </>
+            )
           ) : (
             <div className="w-full flex items-center justify-between">
-              <div>
-                <span className="text-sm font-bold text-white block">Import Your First Workout</span>
-                <span className="text-xs text-zinc-400">Paste a Hevy workout to start tracking</span>
+              <div className="space-y-1">
+                <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
+                <div className="h-3 w-20 bg-white/5 rounded animate-pulse" />
               </div>
-              <button
-                onClick={() => setImportOpen(true)}
-                className="btn-primary text-xs py-2 px-3.5 min-h-[36px] font-bold"
-              >
-                <Plus size={15} />
-                <span>Import Hevy</span>
-              </button>
+              <div className="h-9 w-28 bg-white/10 rounded-lg animate-pulse" />
             </div>
           )}
         </div>

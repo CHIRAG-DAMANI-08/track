@@ -59,11 +59,8 @@ export interface DashboardResponse {
 }
 
 export async function GET() {
+  const startTime = Date.now();
   try {
-    const profile = await getPersonalizedAthleteProfile();
-    const userName = profile.displayName || profile.firstName || 'Chirag';
-    const greeting = getTimeAwareGreeting(userName);
-
     const now = new Date();
 
     // 1. Current Week calculation (Monday to Sunday)
@@ -76,23 +73,93 @@ export async function GET() {
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
 
-    // Query workouts this week
-    const weekWorkouts = await prisma.workout.findMany({
-      where: {
-        performedAt: {
-          gte: weekStart,
-          lt: weekEnd,
-        },
-      },
-      include: {
-        exercises: {
-          include: { sets: true },
-        },
-      },
-      orderBy: { performedAt: 'desc' },
-    });
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    const totalWorkoutsCount = await prisma.workout.count();
+    // Run all top-level queries in parallel to eliminate waterfalls
+    const [
+      profile,
+      weekWorkouts,
+      totalWorkoutsCount,
+      prCount,
+      initialMuscleExposure,
+      observation,
+      latest,
+      distinctExercises,
+    ] = await Promise.all([
+      getPersonalizedAthleteProfile(),
+      prisma.workout.findMany({
+        where: {
+          performedAt: {
+            gte: weekStart,
+            lt: weekEnd,
+          },
+        },
+        select: {
+          id: true,
+          performedAt: true,
+          exercises: {
+            select: {
+              sets: {
+                select: {
+                  setType: true,
+                  weightKg: true,
+                  reps: true,
+                },
+              },
+            },
+          },
+        },
+        orderBy: { performedAt: 'desc' },
+      }),
+      prisma.workout.count(),
+      prisma.exerciseSet.count({
+        where: {
+          isPersonalRecord: true,
+          workoutExercise: {
+            workout: {
+              performedAt: { gte: monthStart },
+            },
+          },
+        },
+      }),
+      getDateRangeMuscleExposure(weekStart, now),
+      prisma.coachObservation.findFirst({
+        where: {
+          status: 'ACTIVE',
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          content: true,
+          type: true,
+        },
+      }),
+      prisma.workout.findFirst({
+        orderBy: { performedAt: 'desc' },
+        select: {
+          id: true,
+          name: true,
+          performedAt: true,
+          exercises: {
+            select: {
+              id: true,
+              sets: {
+                select: { setType: true },
+              },
+            },
+          },
+        },
+      }),
+      prisma.exercise.findMany({
+        where: {
+          workoutExercises: { some: {} },
+        },
+        select: { id: true, canonicalName: true },
+        take: 5,
+      }),
+    ]);
+
+    const userName = profile.displayName || profile.firstName || 'Chirag';
+    const greeting = getTimeAwareGreeting(userName);
 
     // Calculate week days status
     const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
@@ -133,19 +200,7 @@ export async function GET() {
     const workoutsThisWeek = weekWorkouts.length;
     const subtext = `${format(now, 'EEEE, MMM d')} · ${workoutsThisWeek} workout${workoutsThisWeek === 1 ? '' : 's'} this week`;
 
-    // 2. Records / PRs this month
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const prCount = await prisma.exerciseSet.count({
-      where: {
-        isPersonalRecord: true,
-        workoutExercise: {
-          workout: {
-            performedAt: { gte: monthStart },
-          },
-        },
-      },
-    });
-
+    // Records / PRs card
     let recordsCard: DashboardResponse['records'];
     if (prCount > 0) {
       recordsCard = {
@@ -170,10 +225,9 @@ export async function GET() {
       };
     }
 
-    // 3. Muscle Coverage (This week or recent 14 days)
-    let muscleExposure = await getDateRangeMuscleExposure(weekStart, now);
+    // Muscle Coverage (fallback to 14 days if current week has no workouts yet)
+    let muscleExposure = initialMuscleExposure;
     if (!muscleExposure.hasData && totalWorkoutsCount > 0) {
-      // Fallback to recent 14 days to show real recent activity
       const recentStart = new Date(now);
       recentStart.setDate(recentStart.getDate() - 14);
       muscleExposure = await getDateRangeMuscleExposure(recentStart, now);
@@ -193,36 +247,36 @@ export async function GET() {
       percentage: Math.min(100, Math.round((m.workingSets / maxSets) * 100)),
     }));
 
-    // 4. Strength Movers (real progress comparing 2 most recent sessions per exercise)
-    const distinctExercises = await prisma.exercise.findMany({
-      where: {
-        workoutExercises: { some: {} },
-      },
-      select: { id: true, canonicalName: true },
-      take: 15,
-    });
+    // Parallel fetch of history items for distinct exercises (eliminates N+1 loop)
+    const strengthHistoryItems = await Promise.all(
+      distinctExercises.map((ex) =>
+        prisma.workoutExercise.findMany({
+          where: { exerciseId: ex.id },
+          select: {
+            sets: {
+              where: { setType: { not: 'WARMUP' } },
+              select: { weightKg: true, reps: true, setIndex: true },
+              orderBy: { setIndex: 'asc' },
+            },
+            workout: { select: { performedAt: true } },
+          },
+          orderBy: { workout: { performedAt: 'desc' } },
+          take: 2,
+        })
+      )
+    );
 
     const strengthMovers: DashboardResponse['strengthMovers'] = [];
-    for (const ex of distinctExercises) {
-      const historyItems = await prisma.workoutExercise.findMany({
-        where: { exerciseId: ex.id },
-        include: {
-          sets: {
-            where: { setType: { not: 'WARMUP' } },
-            orderBy: { setIndex: 'asc' },
-          },
-          workout: { select: { performedAt: true } },
-        },
-        orderBy: { workout: { performedAt: 'desc' } },
-        take: 2,
-      });
+    for (let i = 0; i < distinctExercises.length; i++) {
+      const ex = distinctExercises[i];
+      const historyItems = strengthHistoryItems[i];
 
-      if (historyItems.length >= 2) {
-        const latest = historyItems[0];
-        const previous = historyItems[1];
+      if (historyItems && historyItems.length >= 2) {
+        const latestSession = historyItems[0];
+        const previousSession = historyItems[1];
 
-        const latestMaxWeight = Math.max(...latest.sets.map((s) => s.weightKg ?? 0), 0);
-        const prevMaxWeight = Math.max(...previous.sets.map((s) => s.weightKg ?? 0), 0);
+        const latestMaxWeight = Math.max(...latestSession.sets.map((s) => s.weightKg ?? 0), 0);
+        const prevMaxWeight = Math.max(...previousSession.sets.map((s) => s.weightKg ?? 0), 0);
 
         if (latestMaxWeight > 0 && prevMaxWeight > 0) {
           const weightDiff = latestMaxWeight - prevMaxWeight;
@@ -239,13 +293,12 @@ export async function GET() {
               changeText: `${weightDiff} kg`,
             });
           } else {
-            // Check reps at max weight
             const latestTopReps = Math.max(
-              ...latest.sets.filter((s) => (s.weightKg ?? 0) === latestMaxWeight).map((s) => s.reps ?? 0),
+              ...latestSession.sets.filter((s) => (s.weightKg ?? 0) === latestMaxWeight).map((s) => s.reps ?? 0),
               0
             );
             const prevTopReps = Math.max(
-              ...previous.sets.filter((s) => (s.weightKg ?? 0) === prevMaxWeight).map((s) => s.reps ?? 0),
+              ...previousSession.sets.filter((s) => (s.weightKg ?? 0) === prevMaxWeight).map((s) => s.reps ?? 0),
               0
             );
             const repsDiff = latestTopReps - prevTopReps;
@@ -275,20 +328,7 @@ export async function GET() {
       if (strengthMovers.length >= 3) break;
     }
 
-    // 5. Coach Snapshot
-    const observation =
-      (await prisma.coachObservation.findFirst({
-        where: {
-          status: 'ACTIVE',
-          type: { in: ['CONCERN', 'INTERPRETATION', 'TREND'] },
-        },
-        orderBy: { createdAt: 'desc' },
-      })) ??
-      (await prisma.coachObservation.findFirst({
-        where: { status: 'ACTIVE' },
-        orderBy: { createdAt: 'desc' },
-      }));
-
+    // Coach Snapshot
     let coachSnapshot: DashboardResponse['coachSnapshot'];
     if (observation) {
       coachSnapshot = {
@@ -313,16 +353,7 @@ export async function GET() {
       };
     }
 
-    // 6. Latest Workout
-    const latest = await prisma.workout.findFirst({
-      orderBy: { performedAt: 'desc' },
-      include: {
-        exercises: {
-          include: { sets: true },
-        },
-      },
-    });
-
+    // Latest Workout formatting
     let latestWorkout: DashboardResponse['latestWorkout'] = null;
     if (latest) {
       const setsCount = latest.exercises.reduce(
@@ -337,6 +368,11 @@ export async function GET() {
         setsCount,
         exercisesCount: latest.exercises.length,
       };
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      const elapsed = Date.now() - startTime;
+      console.log(`[PERF] /api/dashboard parallel execution completed in ${elapsed}ms`);
     }
 
     const responseData: DashboardResponse = {
@@ -362,7 +398,11 @@ export async function GET() {
       latestWorkout,
     };
 
-    return NextResponse.json(responseData);
+    return NextResponse.json(responseData, {
+      headers: {
+        'Cache-Control': 'private, max-age=15, stale-while-revalidate=120',
+      },
+    });
   } catch (error) {
     console.error('Dashboard API error:', error);
     return NextResponse.json(

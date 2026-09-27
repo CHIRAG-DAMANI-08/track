@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowLeft, Loader2, TrendingUp, Dumbbell, Trophy } from 'lucide-react';
+import { ArrowLeft, Dumbbell, Trophy } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { format } from 'date-fns';
 
@@ -29,10 +29,17 @@ export default function ExerciseDetailPage() {
     },
   });
 
-  if (isLoading) {
+  if (isLoading && !data) {
     return (
-      <div className="page-content flex items-center justify-center py-12">
-        <Loader2 size={24} className="animate-spin" style={{ color: 'var(--color-text-tertiary)' }} />
+      <div className="page-content space-y-4">
+        <div className="flex items-center gap-3 pt-2">
+          <button onClick={() => router.back()} className="btn-ghost p-2" aria-label="Back">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="h-6 w-40 bg-white/10 rounded animate-pulse" />
+        </div>
+        <div className="card h-24 bg-white/5 rounded-xl animate-pulse" />
+        <div className="card h-48 bg-white/5 rounded-xl animate-pulse" />
       </div>
     );
   }

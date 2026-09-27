@@ -128,6 +128,7 @@ model ExerciseAlias {
 
   exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
 
+  @@index([exerciseId])
   @@map("exercise_aliases")
 }
 
@@ -169,6 +170,7 @@ model Workout {
   observations  CoachObservation[]
 
   @@index([performedAt])
+  @@index([createdAt])
   @@map("workouts")
 }
 
@@ -184,6 +186,8 @@ model WorkoutExercise {
   exercise Exercise @relation(fields: [exerciseId], references: [id])
   sets     ExerciseSet[]
 
+  @@index([workoutId])
+  @@index([exerciseId])
   @@map("workout_exercises")
 }
 
@@ -203,6 +207,8 @@ model ExerciseSet {
 
   workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
 
+  @@index([workoutExerciseId])
+  @@index([isPersonalRecord])
   @@map("exercise_sets")
 }
 
@@ -245,6 +251,8 @@ model CoachObservation {
 
   workout Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
 
+  @@index([status, createdAt])
+  @@index([workoutId])
   @@map("coach_observations")
 }
 
@@ -276,6 +284,7 @@ model CoachHypothesis {
 
   experiments Experiment[]
 
+  @@index([status, createdAt])
   @@map("coach_hypotheses")
 }
 
@@ -299,6 +308,7 @@ model CoachRecommendation {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
+  @@index([status, priority])
   @@map("coach_recommendations")
 }
 
@@ -327,6 +337,7 @@ model Experiment {
   events        ExperimentEvent[]
   outcome       ExperimentOutcome?
 
+  @@index([status, startDate])
   @@map("experiments")
 }
 

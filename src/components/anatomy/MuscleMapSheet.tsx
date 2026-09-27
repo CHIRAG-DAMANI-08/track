@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { X, Dumbbell, Calendar, TrendingUp, AlertCircle, ChevronRight } from 'lucide-react';
+import { X, Dumbbell, Calendar, TrendingUp, ChevronRight } from 'lucide-react';
 import type { MuscleExposureDetail } from './muscle-map.types';
 
 interface MuscleMapSheetProps {

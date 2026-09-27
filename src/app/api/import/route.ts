@@ -69,7 +69,7 @@ async function handleParse(body: Record<string, unknown>) {
         result.workout = geminiParsed.data;
         result.warnings.push('Parsed using AI fallback — please verify the results');
       }
-    } catch (e) {
+    } catch {
       result.warnings.push('AI fallback parsing also failed');
     }
   }
@@ -100,14 +100,35 @@ async function handleSave(body: Record<string, unknown>) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { rawImportId, workout: workoutData } = parsed.data;
+  const { rawImportId, rawText, workout: workoutData } = parsed.data;
 
-  // Verify raw import exists
-  const rawImport = await prisma.rawHevyImport.findUnique({
-    where: { id: rawImportId },
-  });
-  if (!rawImport) {
-    return NextResponse.json({ error: 'Raw import not found' }, { status: 404 });
+  let finalRawImportId: string | null = rawImportId ?? null;
+
+  if (!finalRawImportId && rawText) {
+    const textHash = hashText(rawText);
+    const existing = await prisma.rawHevyImport.findFirst({
+      where: { textHash },
+    });
+    if (existing) {
+      finalRawImportId = existing.id;
+    } else {
+      const created = await prisma.rawHevyImport.create({
+        data: {
+          rawText,
+          textHash,
+          parseStatus: 'SUCCESS',
+          parsedAt: new Date(),
+        },
+      });
+      finalRawImportId = created.id;
+    }
+  } else if (finalRawImportId) {
+    const rawImport = await prisma.rawHevyImport.findUnique({
+      where: { id: finalRawImportId },
+    });
+    if (!rawImport) {
+      return NextResponse.json({ error: 'Raw import not found' }, { status: 404 });
+    }
   }
 
   // 1. Resolve exercises outside the transaction
@@ -199,7 +220,7 @@ async function handleSave(body: Record<string, unknown>) {
     async (tx) => {
       const workout = await tx.workout.create({
         data: {
-          rawImportId,
+          rawImportId: finalRawImportId,
           name: workoutData.name,
           performedAt,
           durationMinutes: workoutData.durationMinutes,
@@ -236,11 +257,13 @@ async function handleSave(body: Record<string, unknown>) {
         },
       });
 
-      // Update raw import status
-      await tx.rawHevyImport.update({
-        where: { id: rawImportId },
-        data: { parseStatus: 'SUCCESS' },
-      });
+      // Update raw import status if present
+      if (finalRawImportId) {
+        await tx.rawHevyImport.update({
+          where: { id: finalRawImportId },
+          data: { parseStatus: 'SUCCESS' },
+        });
+      }
 
       return workout;
     },

@@ -1,4 +1,3 @@
-import { prisma } from '@/lib/db';
 import { normalizeMuscleGroup, CANONICAL_MUSCLES } from './taxonomy';
 import { findConservativeMuscleMapping } from './mappings';
 import type { MuscleRole, MuscleConfidence } from '@prisma/client';

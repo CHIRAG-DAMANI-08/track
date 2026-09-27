@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import type { AthleteProfile, AthleteGoal, AthleteMemory } from '@prisma/client';
+import type { AthleteProfile, AthleteMemory } from '@prisma/client';
 
 export interface PersonalContextOptions {
   queryText?: string;

@@ -34,12 +34,40 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Workout not found' }, { status: 404 });
       }
 
-      const { getWorkoutMuscleExposure } = await import('@/lib/analytics/muscle-exposure');
-      const muscleExposure = await getWorkoutMuscleExposure(id);
-      const stats = await calculateWorkoutStats(id);
-      const comparison = await compareWithPrevious(id);
+      // 1. Calculate workout stats in-memory (0ms, no extra DB query)
+      let totalSets = 0;
+      let totalVolume = 0;
+      let totalReps = 0;
+      for (const ex of workout.exercises) {
+        for (const set of ex.sets) {
+          if (set.setType === 'WARMUP') continue;
+          totalSets++;
+          if (set.reps) totalReps += set.reps;
+          if (set.weightKg && set.reps) {
+            totalVolume += set.weightKg * set.reps;
+          }
+        }
+      }
+      const stats = {
+        totalSets,
+        totalVolume: Math.round(totalVolume * 10) / 10,
+        totalReps,
+        exerciseCount: workout.exercises.length,
+        durationMinutes: workout.durationMinutes,
+      };
 
-      return NextResponse.json({ workout, muscleExposure, stats, comparison });
+      // 2. Run muscle exposure and exercise comparisons concurrently with preloaded workout
+      const { getWorkoutMuscleExposure } = await import('@/lib/analytics/muscle-exposure');
+      const [muscleExposure, comparison] = await Promise.all([
+        getWorkoutMuscleExposure(workout),
+        compareWithPrevious(workout),
+      ]);
+
+      return NextResponse.json({ workout, muscleExposure, stats, comparison }, {
+        headers: {
+          'Cache-Control': 'private, max-age=60, stale-while-revalidate=300',
+        },
+      });
     }
 
     const limit = parseInt(searchParams.get('limit') ?? '20', 10);

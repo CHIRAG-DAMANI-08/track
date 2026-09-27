@@ -151,7 +151,7 @@ export function parseHevyText(rawText: string): ParseResult {
     }
 
     // Try tabular format: "1 | 100 | 8"
-    const tabularSet = tryParseTabularSet(line, setCounter);
+    const tabularSet = tryParseTabularSet(line);
     if (tabularSet) {
       if (currentExercise) {
         currentExercise.sets.push(tabularSet);
@@ -277,7 +277,7 @@ function tryParseSetLine(line: string, setIndex: number): ParsedSet | null {
   };
 }
 
-function tryParseTabularSet(line: string, setIndex: number): ParsedSet | null {
+function tryParseTabularSet(line: string): ParsedSet | null {
   // Format: "1 | 100 | 8" or "1 │ 100 │ 8"
   const parts = line.split(/[|│]/).map(p => p.trim());
   if (parts.length < 3) return null;

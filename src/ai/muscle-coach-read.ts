@@ -1,6 +1,5 @@
 import { generateStructuredOutput, isGeminiConfigured } from '@/ai/gemini-client';
 import { SYSTEM_PROMPT } from '@/ai/prompts';
-import { prisma } from '@/lib/db';
 import { z } from 'zod';
 import type { MuscleMapState } from '@/components/anatomy/muscle-map.types';
 

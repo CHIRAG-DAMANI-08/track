@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Brain, Loader2, Check, X, AlertTriangle, Eye, Sparkles } from 'lucide-react';
+import { ArrowLeft, Brain, Check, X, AlertTriangle, Eye } from 'lucide-react';
 import { useState } from 'react';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -135,9 +135,11 @@ export default function MemoryPage() {
         </button>
       </div>
 
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 size={24} className="animate-spin text-zinc-500" />
+      {isLoading && !data ? (
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card h-28 bg-white/5 rounded-xl animate-pulse" />
+          ))}
         </div>
       ) : filteredMemories.length === 0 ? (
         <div className="card text-center py-10">

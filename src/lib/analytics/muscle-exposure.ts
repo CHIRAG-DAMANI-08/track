@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/db';
-import { CANONICAL_MUSCLES, SVG_ID_TO_CANONICAL, getMuscleDisplayName } from '@/lib/muscles/taxonomy';
-import { resolveExerciseMuscles, type ResolvedExerciseMuscle } from '@/lib/muscles/normalize';
+import { CANONICAL_MUSCLES } from '@/lib/muscles/taxonomy';
+import { resolveExerciseMuscles } from '@/lib/muscles/normalize';
 import type {
   MuscleMapState,
   MuscleExposureDetail,
@@ -45,26 +45,53 @@ const EMPHASIS_WEIGHTS = {
   TERTIARY: 0.25,
 } as const;
 
+import type { MuscleRole, MuscleConfidence } from '@prisma/client';
+
+export interface WorkoutWithExercisesInput {
+  id: string;
+  name?: string | null;
+  exercises: Array<{
+    sets: Array<{ setType: string }>;
+    exercise: {
+      id: string;
+      canonicalName: string;
+      primaryMuscle?: string | null;
+      secondaryMuscles?: string[];
+      muscleMaps?: Array<{
+        muscleGroup: string;
+        role: MuscleRole;
+        confidence: MuscleConfidence;
+        source?: string;
+      }>;
+    };
+  }>;
+}
+
 /**
  * Calculates muscle exposure for a single workout session.
  */
-export async function getWorkoutMuscleExposure(workoutId: string): Promise<MuscleMapState> {
-  const workout = await prisma.workout.findUnique({
-    where: { id: workoutId },
-    include: {
-      exercises: {
-        include: {
-          sets: true,
-          exercise: {
-            include: {
-              muscleMaps: true,
+export async function getWorkoutMuscleExposure(
+  workoutOrId: string | WorkoutWithExercisesInput
+): Promise<MuscleMapState> {
+  const workout =
+    typeof workoutOrId === 'object' && workoutOrId !== null
+      ? (workoutOrId as WorkoutWithExercisesInput)
+      : await prisma.workout.findUnique({
+          where: { id: workoutOrId },
+          include: {
+            exercises: {
+              include: {
+                sets: true,
+                exercise: {
+                  include: {
+                    muscleMaps: true,
+                  },
+                },
+              },
+              orderBy: { orderIndex: 'asc' },
             },
           },
-        },
-        orderBy: { orderIndex: 'asc' },
-      },
-    },
-  });
+        });
 
   if (!workout || workout.exercises.length === 0) {
     return createEmptyMuscleMapState();
@@ -84,7 +111,7 @@ export async function getWorkoutMuscleExposure(workoutId: string): Promise<Muscl
   let totalWorkingSets = 0;
 
   for (const we of workout.exercises) {
-    const workingSets = we.sets.filter(s => s.setType !== 'WARMUP').length;
+    const workingSets = we.sets.filter((s: { setType: string }) => s.setType !== 'WARMUP').length;
     if (workingSets === 0) continue;
     totalWorkingSets += workingSets;
 
@@ -145,57 +172,50 @@ export async function getDateRangeMuscleExposure(
   startDate: Date,
   endDate: Date
 ): Promise<MuscleMapState> {
-  const workouts = await prisma.workout.findMany({
-    where: {
-      performedAt: {
-        gte: startDate,
-        lte: endDate,
-      },
-    },
-    include: {
-      exercises: {
-        include: {
-          sets: true,
-          exercise: {
-            include: {
-              muscleMaps: true,
-            },
-          },
-        },
-      },
-    },
-    orderBy: { performedAt: 'asc' },
-  });
-
-  if (workouts.length === 0) {
-    return createEmptyMuscleMapState();
-  }
-
-  // Calculate prior period of equal duration for trend analysis
   const durationMs = endDate.getTime() - startDate.getTime();
   const priorStart = new Date(startDate.getTime() - durationMs);
   const priorEnd = new Date(startDate.getTime());
 
-  const priorWorkouts = await prisma.workout.findMany({
-    where: {
-      performedAt: {
-        gte: priorStart,
-        lt: priorEnd,
-      },
-    },
-    include: {
-      exercises: {
-        include: {
-          sets: true,
-          exercise: {
-            include: {
-              muscleMaps: true,
-            },
+  const workoutInclude = {
+    exercises: {
+      include: {
+        sets: {
+          where: { setType: { not: 'WARMUP' as const } },
+        },
+        exercise: {
+          include: {
+            muscleMaps: true,
           },
         },
       },
     },
-  });
+  };
+
+  const [workouts, priorWorkouts] = await Promise.all([
+    prisma.workout.findMany({
+      where: {
+        performedAt: {
+          gte: startDate,
+          lte: endDate,
+        },
+      },
+      include: workoutInclude,
+      orderBy: { performedAt: 'asc' },
+    }),
+    prisma.workout.findMany({
+      where: {
+        performedAt: {
+          gte: priorStart,
+          lt: priorEnd,
+        },
+      },
+      include: workoutInclude,
+    }),
+  ]);
+
+  if (workouts.length === 0) {
+    return createEmptyMuscleMapState();
+  }
 
   // Calculate prior scores by muscle
   const priorMuscleScores = new Map<string, number>();

@@ -188,7 +188,8 @@ export const ImportRequestSchema = z.object({
 });
 
 export const SaveWorkoutRequestSchema = z.object({
-  rawImportId: z.string(),
+  rawImportId: z.string().optional(),
+  rawText: z.string().optional(),
   workout: ParsedWorkoutSchema,
 });
 
