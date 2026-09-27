@@ -1,0 +1,459 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [vector]
+}
+
+// ─── ATHLETE ────────────────────────────────────────────────
+model AthleteProfile {
+  id                         String   @id @default("singleton")
+  firstName                  String   @default("Chirag") @map("first_name")
+  displayName                String   @default("Chirag") @map("display_name")
+  trainingGoals              String?  @map("training_goals")
+  preferredTrainingStyle     String?  @map("preferred_training_style")
+  preferredTrainingFrequency String?  @map("preferred_training_frequency")
+  equipmentContext           String?  @map("equipment_context")
+  exercisePreferences        String?  @map("exercise_preferences")
+  exerciseDislikes           String?  @map("exercise_dislikes")
+  constraints                String?
+  coachingPreferences        String?  @map("coaching_preferences")
+  generalNotes               String?  @map("general_notes")
+
+  // Legacy fields kept for backward compatibility
+  preferredSplit             String?  @map("preferred_split")
+  trainingFrequency          String?  @map("training_frequency")
+  preferences                String?
+  dislikes                   String?
+  coachingNotes              String?  @map("coaching_notes")
+
+  createdAt                  DateTime @default(now()) @map("created_at")
+  updatedAt                  DateTime @updatedAt @map("updated_at")
+
+  goals AthleteGoal[]
+
+  @@map("athlete_profiles")
+}
+
+model AthleteGoal {
+  id          String   @id @default(cuid())
+  profileId   String   @map("profile_id")
+  description String
+  priority    Int      @default(0)
+  status      GoalStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  profile AthleteProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@map("athlete_goals")
+}
+
+enum GoalStatus {
+  ACTIVE
+  ACHIEVED
+  PAUSED
+  ABANDONED
+}
+
+// ─── RAW IMPORTS ────────────────────────────────────────────
+model RawHevyImport {
+  id            String   @id @default(cuid())
+  rawText       String   @map("raw_text")
+  textHash      String   @map("text_hash")
+  parsedAt      DateTime? @map("parsed_at")
+  parseStatus   ParseStatus @default(PENDING) @map("parse_status")
+  parseErrors   String?  @map("parse_errors")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  workouts Workout[]
+
+  @@index([textHash])
+  @@map("raw_hevy_imports")
+}
+
+enum ParseStatus {
+  PENDING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+// ─── EXERCISES ──────────────────────────────────────────────
+model Exercise {
+  id           String   @id @default(cuid())
+  canonicalName String  @unique @map("canonical_name")
+  primaryMuscle String? @map("primary_muscle")
+  secondaryMuscles String[] @map("secondary_muscles")
+  muscleConfidence MuscleConfidence @default(ESTIMATED) @map("muscle_confidence")
+  category     ExerciseCategory @default(OTHER)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  aliases       ExerciseAlias[]
+  workoutExercises WorkoutExercise[]
+  muscleMaps    ExerciseMuscleMap[]
+
+  @@map("exercises")
+}
+
+enum MuscleConfidence {
+  VERIFIED
+  ESTIMATED
+  UNKNOWN
+}
+
+enum ExerciseCategory {
+  BARBELL
+  DUMBBELL
+  MACHINE
+  CABLE
+  BODYWEIGHT
+  BAND
+  CARDIO
+  OTHER
+}
+
+model ExerciseAlias {
+  id          String   @id @default(cuid())
+  exerciseId  String   @map("exercise_id")
+  alias       String   @unique
+  source      String   @default("import")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@map("exercise_aliases")
+}
+
+model ExerciseMuscleMap {
+  id          String   @id @default(cuid())
+  exerciseId  String   @map("exercise_id")
+  muscleGroup String   @map("muscle_group")
+  role        MuscleRole @default(PRIMARY)
+  confidence  MuscleConfidence @default(ESTIMATED)
+  source      String   @default("system")
+
+  exercise Exercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+
+  @@unique([exerciseId, muscleGroup])
+  @@map("exercise_muscle_maps")
+}
+
+enum MuscleRole {
+  PRIMARY
+  SECONDARY
+  TERTIARY
+  STABILIZER
+}
+
+// ─── WORKOUTS ───────────────────────────────────────────────
+model Workout {
+  id           String   @id @default(cuid())
+  rawImportId  String?  @map("raw_import_id")
+  name         String?
+  performedAt  DateTime @map("performed_at")
+  durationMinutes Int?  @map("duration_minutes")
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  rawImport     RawHevyImport? @relation(fields: [rawImportId], references: [id], onDelete: SetNull)
+  exercises     WorkoutExercise[]
+  derivedMetrics DerivedMetric[]
+  observations  CoachObservation[]
+
+  @@index([performedAt])
+  @@map("workouts")
+}
+
+model WorkoutExercise {
+  id          String   @id @default(cuid())
+  workoutId   String   @map("workout_id")
+  exerciseId  String   @map("exercise_id")
+  orderIndex  Int      @map("order_index")
+  notes       String?
+  rawName     String?  @map("raw_name")
+
+  workout  Workout  @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+  exercise Exercise @relation(fields: [exerciseId], references: [id])
+  sets     ExerciseSet[]
+
+  @@map("workout_exercises")
+}
+
+model ExerciseSet {
+  id                String   @id @default(cuid())
+  workoutExerciseId String   @map("workout_exercise_id")
+  setIndex          Int      @map("set_index")
+  setType           SetType  @default(WORKING)
+  weightKg          Float?   @map("weight_kg")
+  reps              Int?
+  durationSeconds   Int?     @map("duration_seconds")
+  distanceMeters    Float?   @map("distance_meters")
+  rpe               Float?
+  isPersonalRecord  Boolean  @default(false) @map("is_personal_record")
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  workoutExercise WorkoutExercise @relation(fields: [workoutExerciseId], references: [id], onDelete: Cascade)
+
+  @@map("exercise_sets")
+}
+
+enum SetType {
+  WARMUP
+  WORKING
+  DROP
+  FAILURE
+  CLUSTER
+}
+
+// ─── DERIVED METRICS ────────────────────────────────────────
+model DerivedMetric {
+  id          String   @id @default(cuid())
+  workoutId   String?  @map("workout_id")
+  metricType  String   @map("metric_type")
+  metricKey   String   @map("metric_key")
+  value       Float
+  unit        String?
+  context     String?
+  calculatedAt DateTime @default(now()) @map("calculated_at")
+
+  workout Workout? @relation(fields: [workoutId], references: [id], onDelete: Cascade)
+
+  @@index([metricType, metricKey])
+  @@map("derived_metrics")
+}
+
+// ─── COACH AI ───────────────────────────────────────────────
+model CoachObservation {
+  id          String   @id @default(cuid())
+  workoutId   String?  @map("workout_id")
+  type        ObservationType
+  content     String
+  confidence  Float    @default(0.5)
+  evidenceSummary String? @map("evidence_summary")
+  status      ObservationStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  workout Workout? @relation(fields: [workoutId], references: [id], onDelete: SetNull)
+
+  @@map("coach_observations")
+}
+
+enum ObservationType {
+  FACTUAL
+  INTERPRETATION
+  TREND
+  CONCERN
+  PRAISE
+}
+
+enum ObservationStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  DISMISSED
+  SUPERSEDED
+}
+
+model CoachHypothesis {
+  id          String   @id @default(cuid())
+  statement   String
+  reasoning   String?
+  confidence  Float    @default(0.3)
+  evidenceFor String[] @map("evidence_for")
+  evidenceAgainst String[] @map("evidence_against")
+  status      HypothesisStatus @default(CANDIDATE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  experiments Experiment[]
+
+  @@map("coach_hypotheses")
+}
+
+enum HypothesisStatus {
+  CANDIDATE
+  ACTIVE
+  SUPPORTED
+  DISPUTED
+  SUPERSEDED
+  REJECTED
+}
+
+model CoachRecommendation {
+  id          String   @id @default(cuid())
+  title       String
+  content     String
+  reasoning   String?
+  priority    Int      @default(0)
+  category    String?
+  status      RecommendationStatus @default(ACTIVE)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("coach_recommendations")
+}
+
+enum RecommendationStatus {
+  ACTIVE
+  ACCEPTED
+  DECLINED
+  COMPLETED
+  SUPERSEDED
+}
+
+// ─── EXPERIMENTS ────────────────────────────────────────────
+model Experiment {
+  id            String   @id @default(cuid())
+  hypothesisId  String?  @map("hypothesis_id")
+  title         String
+  intervention  String
+  baselineDescription String? @map("baseline_description")
+  startDate     DateTime @map("start_date")
+  targetEndDate DateTime? @map("target_end_date")
+  status        ExperimentStatus @default(ACTIVE)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  hypothesis    CoachHypothesis? @relation(fields: [hypothesisId], references: [id], onDelete: SetNull)
+  events        ExperimentEvent[]
+  outcome       ExperimentOutcome?
+
+  @@map("experiments")
+}
+
+enum ExperimentStatus {
+  PROPOSED
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ABANDONED
+}
+
+model ExperimentEvent {
+  id           String   @id @default(cuid())
+  experimentId String   @map("experiment_id")
+  eventType    String   @map("event_type")
+  description  String
+  data         String?
+  recordedAt   DateTime @default(now()) @map("recorded_at")
+
+  experiment Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@map("experiment_events")
+}
+
+model ExperimentOutcome {
+  id           String   @id @default(cuid())
+  experimentId String   @unique @map("experiment_id")
+  conclusion   String
+  confidence   Float    @default(0.5)
+  evidenceSummary String? @map("evidence_summary")
+  causalClaim  CausalClaim @default(SUGGESTIVE) @map("causal_claim")
+  concludedAt  DateTime @default(now()) @map("concluded_at")
+
+  experiment Experiment @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+
+  @@map("experiment_outcomes")
+}
+
+enum CausalClaim {
+  NONE
+  SUGGESTIVE
+  CONSISTENT_WITH
+  LIKELY
+}
+
+// ─── MEMORY ─────────────────────────────────────────────────
+model AthleteMemory {
+  id           String   @id @default(cuid())
+  memoryType   MemoryType @map("memory_type")
+  statement    String
+  confidence   Float    @default(0.3)
+  evidenceCount Int     @default(0) @map("evidence_count")
+  status       MemoryStatus @default(CANDIDATE)
+  version      Int      @default(1)
+  supersededBy String?  @map("superseded_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  evidence     MemoryEvidence[]
+
+  @@index([memoryType, status])
+  @@map("athlete_memories")
+}
+
+enum MemoryType {
+  PROFILE
+  PREFERENCE
+  CONSTRAINT
+  OBSERVATION
+  HYPOTHESIS
+  INTERVENTION
+  OUTCOME
+  LEARNED_PATTERN
+}
+
+enum MemoryStatus {
+  CANDIDATE
+  ACTIVE
+  CONFIRMED
+  DISPUTED
+  SUPERSEDED
+  ARCHIVED
+}
+
+model MemoryEvidence {
+  id          String   @id @default(cuid())
+  memoryId    String   @map("memory_id")
+  sourceType  String   @map("source_type")
+  sourceId    String?  @map("source_id")
+  description String
+  supports    Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  memory AthleteMemory @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+
+  @@map("memory_evidence")
+}
+
+// ─── COACH CONVERSATIONS ────────────────────────────────────
+model CoachConversation {
+  id        String   @id @default(cuid())
+  title     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  messages CoachMessage[]
+
+  @@map("coach_conversations")
+}
+
+model CoachMessage {
+  id             String   @id @default(cuid())
+  conversationId String   @map("conversation_id")
+  role           MessageRole
+  content        String
+  structuredData String?  @map("structured_data")
+  contextUsed    String?  @map("context_used")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  conversation CoachConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@map("coach_messages")
+}
+
+enum MessageRole {
+  USER
+  COACH
+  SYSTEM
+}
