@@ -99,6 +99,11 @@ export function MuscleMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Sync view state when initialView prop changes
+  useEffect(() => {
+    setView(initialView);
+  }, [initialView]);
+
   // Update chart view when view state changes
   useEffect(() => {
     if (!chartRef.current) return;
