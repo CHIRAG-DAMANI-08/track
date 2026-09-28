@@ -5,9 +5,10 @@ import { useState, useCallback, Suspense } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Save, Brain, Loader2, Trash2, Plus,
-  AlertTriangle
+  AlertTriangle, Flame, Thermometer
 } from 'lucide-react';
-import type { ParsedWorkout, ParsedExercise } from '@/lib/schemas';
+import type { ParsedWorkout, ParsedExercise, ParsedSet } from '@/lib/schemas';
+import { workoutMutationQueryKeys } from '@/lib/query-keys';
 
 function ReviewContent() {
   const searchParams = useSearchParams();
@@ -56,9 +57,25 @@ function ReviewContent() {
       return res.json();
     },
     onSuccess: async (data) => {
-      queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-      queryClient.invalidateQueries({ queryKey: ['workouts'] });
-      queryClient.invalidateQueries({ queryKey: ['progress'] });
+      // ─── Handle duplicate detection from save ────────────
+      if (data.isDuplicate) {
+        const viewExisting = confirm(
+          'This workout has already been imported.\n\nWould you like to view the existing workout?'
+        );
+        if (viewExisting && data.existingWorkoutId) {
+          router.push(`/workout/${data.existingWorkoutId}`);
+        }
+        return;
+      }
+
+      // ─── CRITICAL: Invalidate ALL workout-related queries ────────
+      // This ensures Progress, Dashboard, Calendar, etc. all refetch
+      const keysToInvalidate = workoutMutationQueryKeys();
+      await Promise.all(
+        keysToInvalidate.map(key =>
+          queryClient.invalidateQueries({ queryKey: key })
+        )
+      );
 
       const workoutId = data.workout?.id;
       if (analyzeAfterSave && workoutId) {
@@ -138,10 +155,12 @@ function ReviewContent() {
                   setIndex: ex.sets.length,
                   setType: 'WORKING' as const,
                   weightKg: null,
+                  weightUnit: 'kg',
                   reps: null,
                   durationSeconds: null,
                   distanceMeters: null,
                   rpe: null,
+                  rir: null,
                   isPersonalRecord: false,
                   notes: null,
                 },
@@ -151,6 +170,27 @@ function ReviewContent() {
       ),
     }));
   }, []);
+
+  // ─── Set type display helpers ────────────────────────────
+  const setTypeLabel = (type: string) => {
+    switch (type) {
+      case 'WARMUP': return 'WU';
+      case 'WORKING': return '';
+      case 'DROP': return 'DROP';
+      case 'FAILURE': return 'FAIL';
+      case 'CLUSTER': return 'CL';
+      default: return '';
+    }
+  };
+
+  const setTypeBadgeClass = (type: string) => {
+    switch (type) {
+      case 'WARMUP': return 'bg-amber-500/20 text-amber-300 border-amber-500/30';
+      case 'DROP': return 'bg-purple-500/20 text-purple-300 border-purple-500/30';
+      case 'FAILURE': return 'bg-red-500/20 text-red-300 border-red-500/30';
+      default: return 'bg-white/5 text-zinc-400 border-white/10';
+    }
+  };
 
   return (
     <div className="page-content">
@@ -199,10 +239,20 @@ function ReviewContent() {
         <label className="label">Duration (minutes)</label>
         <input
           type="number"
-          className="input"
+          className="input mb-3"
           value={workout.durationMinutes ?? ''}
           onChange={(e) => updateWorkoutField('durationMinutes', e.target.value ? parseInt(e.target.value) : null)}
           placeholder="Optional"
+        />
+
+        {/* Workout Notes */}
+        <label className="label">Workout Notes</label>
+        <textarea
+          className="textarea text-sm"
+          value={workout.notes ?? ''}
+          onChange={(e) => updateWorkoutField('notes', e.target.value || null)}
+          placeholder="Optional workout-level notes"
+          rows={2}
         />
       </div>
 
@@ -217,10 +267,10 @@ function ReviewContent() {
       ) : (
         workout.exercises.map((ex, exIdx) => (
           <div key={exIdx} className="card">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-2">
               <input
                 type="text"
-                className="input flex-1 mr-2"
+                className="input flex-1 mr-2 font-semibold"
                 value={ex.rawName}
                 onChange={(e) => updateExercise(exIdx, { rawName: e.target.value })}
               />
@@ -233,57 +283,83 @@ function ReviewContent() {
               </button>
             </div>
 
-            {/* Sets Table */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ color: 'var(--color-text-tertiary)' }}>
-                    <th className="text-left pb-2 pr-2 font-medium text-xs">Set</th>
-                    <th className="text-left pb-2 pr-2 font-medium text-xs">Weight (kg)</th>
-                    <th className="text-left pb-2 pr-2 font-medium text-xs">Reps</th>
-                    <th className="pb-2 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ex.sets.map((set, setIdx) => (
-                    <tr key={setIdx}>
-                      <td className="py-1 pr-2">
-                        <span className="badge badge-accent text-xs">{setIdx + 1}</span>
-                      </td>
-                      <td className="py-1 pr-2">
-                        <input
-                          type="number"
-                          className="input py-1.5 px-2 text-sm"
-                          style={{ minHeight: '36px' }}
-                          value={set.weightKg ?? ''}
-                          onChange={(e) => updateSet(exIdx, setIdx, 'weightKg', e.target.value ? parseFloat(e.target.value) : null)}
-                          placeholder="—"
-                          step="0.5"
-                        />
-                      </td>
-                      <td className="py-1 pr-2">
-                        <input
-                          type="number"
-                          className="input py-1.5 px-2 text-sm"
-                          style={{ minHeight: '36px' }}
-                          value={set.reps ?? ''}
-                          onChange={(e) => updateSet(exIdx, setIdx, 'reps', e.target.value ? parseInt(e.target.value) : null)}
-                          placeholder="—"
-                        />
-                      </td>
-                      <td className="py-1">
-                        <button
-                          onClick={() => removeSet(exIdx, setIdx)}
-                          className="btn-ghost p-1"
-                          aria-label="Remove set"
-                        >
-                          <Trash2 size={14} style={{ color: 'var(--color-text-tertiary)' }} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            {/* Exercise Note */}
+            {ex.notes && (
+              <div className="mb-2 px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+                📝 {ex.notes}
+              </div>
+            )}
+
+            {/* Sets */}
+            <div className="space-y-1.5">
+              {ex.sets.map((set: ParsedSet, setIdx: number) => (
+                <div key={setIdx} className="flex items-center gap-2 text-xs">
+                  {/* Set Number + Type Badge */}
+                  <div className="flex items-center gap-1 w-16 shrink-0">
+                    <span className="text-zinc-500 font-mono w-4">{setIdx + 1}</span>
+                    {set.setType !== 'WORKING' && (
+                      <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${setTypeBadgeClass(set.setType)}`}>
+                        {setTypeLabel(set.setType)}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Weight */}
+                  <input
+                    type="number"
+                    className="input py-1 px-2 text-xs w-20"
+                    style={{ minHeight: '30px' }}
+                    value={set.weightKg ?? ''}
+                    onChange={(e) => updateSet(exIdx, setIdx, 'weightKg', e.target.value ? parseFloat(e.target.value) : null)}
+                    placeholder="kg"
+                    step="0.5"
+                  />
+                  <span className="text-zinc-500">×</span>
+
+                  {/* Reps */}
+                  <input
+                    type="number"
+                    className="input py-1 px-2 text-xs w-14"
+                    style={{ minHeight: '30px' }}
+                    value={set.reps ?? ''}
+                    onChange={(e) => updateSet(exIdx, setIdx, 'reps', e.target.value ? parseInt(e.target.value) : null)}
+                    placeholder="reps"
+                  />
+
+                  {/* RPE (only show if present) */}
+                  {set.rpe !== null && set.rpe !== undefined && (
+                    <span className="flex items-center gap-0.5 text-amber-400 shrink-0">
+                      <Flame size={11} />
+                      <span className="font-semibold">{set.rpe}</span>
+                    </span>
+                  )}
+
+                  {/* RIR (only show if present) */}
+                  {set.rir !== null && set.rir !== undefined && (
+                    <span className="flex items-center gap-0.5 text-blue-400 shrink-0">
+                      <Thermometer size={11} />
+                      <span className="font-semibold">{set.rir}</span>
+                    </span>
+                  )}
+
+                  {/* Remove */}
+                  <button
+                    onClick={() => removeSet(exIdx, setIdx)}
+                    className="btn-ghost p-1 shrink-0"
+                    aria-label="Remove set"
+                  >
+                    <Trash2 size={12} style={{ color: 'var(--color-text-tertiary)' }} />
+                  </button>
+                </div>
+              ))}
+              {/* Set Notes (shown below the set row) */}
+              {ex.sets.map((set: ParsedSet, setIdx: number) => (
+                set.notes ? (
+                  <div key={`note-${setIdx}`} className="ml-16 px-2 py-1 rounded bg-white/[0.03] text-[11px] text-zinc-400 italic">
+                    Set {setIdx + 1}: &ldquo;{set.notes}&rdquo;
+                  </div>
+                ) : null
+              ))}
             </div>
 
             <button

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import dynamic from 'next/dynamic';
 import { ImportSheet } from '@/components/import-sheet';
+import { queryKeys } from '@/lib/query-keys';
 import type { DashboardResponse } from '@/app/api/dashboard/route';
 
 // Lazy-load anatomy component so initial home paint is 0ms
@@ -60,7 +61,7 @@ export default function TodayPage() {
 
   // TanStack Query with background revalidation & cache persistence
   const { data } = useQuery<DashboardResponse>({
-    queryKey: ['dashboard'],
+    queryKey: queryKeys.dashboard,
     queryFn: async () => {
       const res = await fetch('/api/dashboard');
       if (!res.ok) throw new Error('Failed to load dashboard');

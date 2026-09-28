@@ -6,10 +6,12 @@ export const ParsedSetSchema = z.object({
   setIndex: z.number(),
   setType: z.enum(['WARMUP', 'WORKING', 'DROP', 'FAILURE', 'CLUSTER']).default('WORKING'),
   weightKg: z.number().nullable(),
+  weightUnit: z.string().nullable().default('kg'),
   reps: z.number().nullable(),
   durationSeconds: z.number().nullable().default(null),
   distanceMeters: z.number().nullable().default(null),
   rpe: z.number().nullable().default(null),
+  rir: z.number().nullable().default(null),
   isPersonalRecord: z.boolean().default(false),
   notes: z.string().nullable().default(null),
 });

@@ -6,6 +6,11 @@ import {
   getPersonalRecords,
   getExerciseHistory,
 } from '@/lib/analytics';
+import {
+  getDateRange,
+  toLocalWeekKey,
+  rangeToWeeks,
+} from '@/lib/dates/training-calendar';
 
 export async function GET(request: Request) {
   try {
@@ -28,42 +33,16 @@ export async function GET(request: Request) {
         const customEnd = searchParams.get('endDate');
 
         let start: Date;
-        let end: Date = new Date();
+        let end: Date;
 
         if (customStart && customEnd) {
           start = new Date(customStart);
           end = new Date(customEnd);
           end.setHours(23, 59, 59, 999);
-        } else if (range === 'this-week') {
-          const now = new Date();
-          const day = now.getDay();
-          const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-          start = new Date(now.setDate(diff));
-          start.setHours(0, 0, 0, 0);
-          end = new Date();
-        } else if (range === 'last-week') {
-          const now = new Date();
-          const day = now.getDay();
-          const diff = now.getDate() - day + (day === 0 ? -6 : 1) - 7;
-          start = new Date(now.setDate(diff));
-          start.setHours(0, 0, 0, 0);
-          const endD = new Date(start);
-          endD.setDate(endD.getDate() + 6);
-          endD.setHours(23, 59, 59, 999);
-          end = endD;
-        } else if (range === '8w') {
-          start = new Date();
-          start.setDate(start.getDate() - 56);
-          start.setHours(0, 0, 0, 0);
-        } else if (range === '4w' || range === '1m') {
-          start = new Date();
-          start.setDate(start.getDate() - 28);
-          start.setHours(0, 0, 0, 0);
         } else {
-          const days = weeks * 7;
-          start = new Date();
-          start.setDate(start.getDate() - days);
-          start.setHours(0, 0, 0, 0);
+          const dateRange = getDateRange(range);
+          start = dateRange.start;
+          end = dateRange.end;
         }
 
         const muscleMapState = await getDateRangeMuscleExposure(start, end);
@@ -166,24 +145,11 @@ export async function GET(request: Request) {
   }
 }
 
-function rangeToWeeks(range: string): number {
-  switch (range) {
-    case '1w': return 1;
-    case '1m': return 4;
-    case '3m': return 13;
-    case '6m': return 26;
-    case '1y': return 52;
-    case 'all': return 520;
-    default: return 13;
-  }
-}
+// Re-exported from centralized training-calendar
+// function rangeToWeeks — now imported from '@/lib/dates/training-calendar'
 
 function getWeekKey(date: Date): string {
-  const d = new Date(date);
-  const day = d.getUTCDay();
-  const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-  d.setUTCDate(diff);
-  return d.toISOString().slice(0, 10);
+  return toLocalWeekKey(date);
 }
 
 export async function POST(request: Request) {

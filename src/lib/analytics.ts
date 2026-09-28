@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/db';
 import { roundTo } from '@/lib/utils';
+import { getLocalWeekStart, getLocalWeekEnd, toLocalDateKey, toLocalWeekKey } from '@/lib/dates/training-calendar';
 
 /**
  * Deterministic analytics engine.
@@ -8,9 +9,11 @@ import { roundTo } from '@/lib/utils';
  */
 
 export interface WorkoutStats {
-  totalSets: number;
-  totalVolume: number; // kg
-  totalReps: number;
+  totalSets: number;      // ALL sets (warmup + working + drop + failure + cluster)
+  workingSets: number;    // Working sets only (excludes warmup)
+  warmupSets: number;     // Warmup sets only
+  totalVolume: number;    // Volume from working sets (kg)
+  totalReps: number;      // Reps from working sets
   exerciseCount: number;
   durationMinutes: number | null;
 }
@@ -56,13 +59,19 @@ export async function calculateWorkoutStats(workoutId: string): Promise<WorkoutS
   if (!workout) throw new Error(`Workout ${workoutId} not found`);
 
   let totalSets = 0;
+  let workingSets = 0;
+  let warmupSets = 0;
   let totalVolume = 0;
   let totalReps = 0;
 
   for (const ex of workout.exercises) {
     for (const set of ex.sets) {
-      if (set.setType === 'WARMUP') continue;
       totalSets++;
+      if (set.setType === 'WARMUP') {
+        warmupSets++;
+        continue;
+      }
+      workingSets++;
       if (set.reps) totalReps += set.reps;
       if (set.weightKg && set.reps) {
         totalVolume += set.weightKg * set.reps;
@@ -72,11 +81,50 @@ export async function calculateWorkoutStats(workoutId: string): Promise<WorkoutS
 
   return {
     totalSets,
+    workingSets,
+    warmupSets,
     totalVolume: roundTo(totalVolume, 1),
     totalReps,
     exerciseCount: workout.exercises.length,
     durationMinutes: workout.durationMinutes,
   };
+}
+
+/**
+ * Rebuild derived metrics for a specific workout idempotently.
+ * Deletes any existing metrics for the workout and recomputes them.
+ */
+export async function rebuildWorkoutDerivedMetrics(workoutId: string): Promise<void> {
+  const stats = await calculateWorkoutStats(workoutId);
+
+  await prisma.derivedMetric.deleteMany({
+    where: { workoutId },
+  });
+
+  await prisma.derivedMetric.createMany({
+    data: [
+      { workoutId, metricType: 'volume', metricKey: 'total_volume', value: stats.totalVolume, unit: 'kg' },
+      { workoutId, metricType: 'volume', metricKey: 'working_sets', value: stats.workingSets, unit: 'sets' },
+      { workoutId, metricType: 'volume', metricKey: 'warmup_sets', value: stats.warmupSets, unit: 'sets' },
+      { workoutId, metricType: 'volume', metricKey: 'total_sets', value: stats.totalSets, unit: 'sets' },
+      { workoutId, metricType: 'volume', metricKey: 'total_reps', value: stats.totalReps, unit: 'reps' },
+    ],
+  });
+}
+
+/**
+ * Rebuild derived metrics for all workouts in the database idempotently.
+ */
+export async function rebuildAllDerivedMetrics(): Promise<number> {
+  const workouts = await prisma.workout.findMany({
+    select: { id: true },
+  });
+
+  for (const w of workouts) {
+    await rebuildWorkoutDerivedMetrics(w.id);
+  }
+
+  return workouts.length;
 }
 
 // ─── Exercise History ───────────────────────────────────────
@@ -264,12 +312,11 @@ export async function getWeeklyVolumeTrends(weeks: number = 12): Promise<VolumeT
   const weekMap = new Map<string, VolumeTrend>();
 
   for (const workout of workouts) {
-    const weekStart = getWeekStart(workout.performedAt);
-    const key = weekStart.toISOString().slice(0, 10);
+    const weekStart = getLocalWeekStart(workout.performedAt);
+    const key = toLocalWeekKey(workout.performedAt);
 
     if (!weekMap.has(key)) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
+      const weekEnd = getLocalWeekEnd(workout.performedAt);
       weekMap.set(key, {
         period: key,
         startDate: weekStart,
@@ -356,7 +403,7 @@ export async function getMuscleGroupExposure(
       }
 
       const exposure = muscleMap.get(muscle.muscleGroup)!;
-      const dateKey = we.workout.performedAt.toISOString().slice(0, 10);
+      const dateKey = toLocalDateKey(we.workout.performedAt);
       muscleSessionDates.get(muscle.muscleGroup)!.add(dateKey);
 
       for (const set of we.sets) {
@@ -426,7 +473,7 @@ export async function getConsistencyMetrics(): Promise<ConsistencyMetrics> {
   // Calculate streaks (count consecutive weeks with workouts)
   const weekSet = new Set<string>();
   for (const d of dates) {
-    weekSet.add(getWeekStart(d).toISOString().slice(0, 10));
+    weekSet.add(toLocalWeekKey(d));
   }
 
   const sortedWeeks = Array.from(weekSet).sort();
@@ -437,7 +484,7 @@ export async function getConsistencyMetrics(): Promise<ConsistencyMetrics> {
   for (let i = 1; i < sortedWeeks.length; i++) {
     const prevWeek = new Date(sortedWeeks[i - 1]);
     const currWeek = new Date(sortedWeeks[i]);
-    const diffDays = (currWeek.getTime() - prevWeek.getTime()) / (1000 * 60 * 60 * 24);
+    const diffDays = Math.round((currWeek.getTime() - prevWeek.getTime()) / (1000 * 60 * 60 * 24));
 
     if (diffDays <= 7) {
       tempStreak++;
@@ -454,7 +501,7 @@ export async function getConsistencyMetrics(): Promise<ConsistencyMetrics> {
 
   // If the latest workout week is this week or last week, start counting
   const lastWeekDate = new Date(lastWeekKey);
-  const currentWeekDate = getWeekStart(now);
+  const currentWeekDate = new Date(toLocalWeekKey(now));
   const weekDiff = Math.floor(
     (currentWeekDate.getTime() - lastWeekDate.getTime()) / (1000 * 60 * 60 * 24 * 7)
   );
@@ -616,13 +663,4 @@ export function calculate1RM(weight: number, reps: number): number | null {
 
   const e1rm = weight * (1 + reps / 30);
   return roundTo(e1rm, 1);
-}
-
-function getWeekStart(date: Date): Date {
-  const d = new Date(date);
-  const day = d.getUTCDay();
-  const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
-  d.setUTCDate(diff);
-  d.setUTCHours(0, 0, 0, 0);
-  return d;
 }

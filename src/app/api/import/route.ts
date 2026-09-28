@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
-import { parseHevyText, normalizeExerciseName, guessMusclePrimary } from '@/lib/parser';
+import { parseHevyText, normalizeExerciseName, guessMusclePrimary, generateImportFingerprint } from '@/lib/parser';
 import { ImportRequestSchema, SaveWorkoutRequestSchema } from '@/lib/schemas';
 import { hashText } from '@/lib/utils';
 import { generateWithGemini, isGeminiConfigured } from '@/ai/gemini-client';
@@ -37,7 +37,7 @@ async function handleParse(body: Record<string, unknown>) {
   const { rawText } = parsed.data;
   const textHash = hashText(rawText);
 
-  // Check for duplicate import
+  // Check for duplicate import by raw text hash
   const existing = await prisma.rawHevyImport.findFirst({
     where: { textHash },
     include: { workouts: { select: { id: true } } },
@@ -102,6 +102,24 @@ async function handleSave(body: Record<string, unknown>) {
 
   const { rawImportId, rawText, workout: workoutData } = parsed.data;
 
+  // ─── STEP 1: Generate import fingerprint for duplicate detection ─────
+  const fingerprint = generateImportFingerprint(workoutData);
+
+  // Check if this exact workout has already been imported
+  const existingWorkout = await prisma.workout.findUnique({
+    where: { importFingerprint: fingerprint },
+    select: { id: true, name: true, performedAt: true },
+  });
+
+  if (existingWorkout) {
+    return NextResponse.json({
+      isDuplicate: true,
+      existingWorkoutId: existingWorkout.id,
+      message: 'This workout has already been imported.',
+    });
+  }
+
+  // ─── STEP 2: Resolve raw import record ──────────────────────────────
   let finalRawImportId: string | null = rawImportId ?? null;
 
   if (!finalRawImportId && rawText) {
@@ -131,7 +149,7 @@ async function handleSave(body: Record<string, unknown>) {
     }
   }
 
-  // 1. Resolve exercises outside the transaction
+  // ─── STEP 3: Resolve exercises outside the transaction ──────────────
   const exerciseMap = new Map<string, string>(); // rawName -> exerciseId
 
   const exerciseMeta = workoutData.exercises.map(ex => ({
@@ -211,69 +229,89 @@ async function handleSave(body: Record<string, unknown>) {
     exerciseMap.set(meta.rawName, exercise.id);
   }
 
-  // 2. Create workout in an atomic transaction with 30s timeout
+  // ─── STEP 4: Transactional save ─────────────────────────────────────
+  // CRITICAL: The workout date comes from Hevy, not from createdAt
   const performedAt = workoutData.performedAt
     ? new Date(workoutData.performedAt)
     : new Date();
 
-  const result = await prisma.$transaction(
-    async (tx) => {
-      const workout = await tx.workout.create({
-        data: {
-          rawImportId: finalRawImportId,
-          name: workoutData.name,
-          performedAt,
-          durationMinutes: workoutData.durationMinutes,
-          notes: workoutData.notes,
-          exercises: {
-            create: workoutData.exercises.map((ex, idx) => ({
-              exerciseId: exerciseMap.get(ex.rawName)!,
-              orderIndex: idx,
-              rawName: ex.rawName,
-              notes: ex.notes,
-              sets: {
-                create: ex.sets.map((set) => ({
-                  setIndex: set.setIndex,
-                  setType: set.setType,
-                  weightKg: set.weightKg,
-                  reps: set.reps,
-                  durationSeconds: set.durationSeconds,
-                  distanceMeters: set.distanceMeters,
-                  rpe: set.rpe,
-                  isPersonalRecord: set.isPersonalRecord,
-                  notes: set.notes,
-                })),
-              },
-            })),
-          },
-        },
-        include: {
-          exercises: {
-            include: {
-              sets: true,
-              exercise: true,
+  try {
+    const result = await prisma.$transaction(
+      async (tx) => {
+        const workout = await tx.workout.create({
+          data: {
+            rawImportId: finalRawImportId,
+            importFingerprint: fingerprint,
+            name: workoutData.name,
+            performedAt,
+            durationMinutes: workoutData.durationMinutes,
+            notes: workoutData.notes,
+            exercises: {
+              create: workoutData.exercises.map((ex, idx) => ({
+                exerciseId: exerciseMap.get(ex.rawName)!,
+                orderIndex: idx,
+                rawName: ex.rawName,
+                notes: ex.notes,
+                sets: {
+                  create: ex.sets.map((set) => ({
+                    setIndex: set.setIndex,
+                    setType: set.setType,
+                    weightKg: set.weightKg,
+                    weightUnit: set.weightUnit ?? 'kg',
+                    reps: set.reps,
+                    durationSeconds: set.durationSeconds,
+                    distanceMeters: set.distanceMeters,
+                    rpe: set.rpe,
+                    rir: set.rir ?? null,
+                    isPersonalRecord: set.isPersonalRecord,
+                    notes: set.notes,
+                  })),
+                },
+              })),
             },
           },
-        },
-      });
-
-      // Update raw import status if present
-      if (finalRawImportId) {
-        await tx.rawHevyImport.update({
-          where: { id: finalRawImportId },
-          data: { parseStatus: 'SUCCESS' },
+          include: {
+            exercises: {
+              include: {
+                sets: true,
+                exercise: true,
+              },
+            },
+          },
         });
+
+        // Update raw import status if present
+        if (finalRawImportId) {
+          await tx.rawHevyImport.update({
+            where: { id: finalRawImportId },
+            data: { parseStatus: 'SUCCESS' },
+          });
+        }
+
+        return workout;
+      },
+      {
+        timeout: 30000,
+        maxWait: 10000,
       }
+    );
 
-      return workout;
-    },
-    {
-      timeout: 30000,
-      maxWait: 10000,
+    return NextResponse.json({ workout: result, isDuplicate: false });
+  } catch (err: unknown) {
+    const pErr = err as { code?: string; meta?: { target?: string[] } };
+    if (pErr.code === 'P2002') {
+      const existing = await prisma.workout.findUnique({
+        where: { importFingerprint: fingerprint },
+        select: { id: true, name: true, performedAt: true },
+      });
+      return NextResponse.json({
+        isDuplicate: true,
+        existingWorkoutId: existing?.id,
+        message: 'This workout has already been imported.',
+      });
     }
-  );
-
-  return NextResponse.json({ workout: result });
+    throw err;
+  }
 }
 
 export async function GET() {

@@ -119,36 +119,51 @@ export async function analyzeWorkout(workoutId: string): Promise<WorkoutAnalysis
 
 // ─── Formatting helpers ─────────────────────────────────────
 
-function formatWorkoutForPrompt(workout: {
+export function formatWorkoutForPrompt(workout: {
   name: string | null;
   performedAt: Date;
   durationMinutes: number | null;
+  notes: string | null;
   exercises: Array<{
     exercise: { canonicalName: string };
+    notes: string | null;
     sets: Array<{
       setType: string;
       weightKg: number | null;
       reps: number | null;
       rpe: number | null;
+      rir: number | null;
+      notes: string | null;
     }>;
   }>;
 }): string {
   const lines = [
     `Workout: ${workout.name ?? 'Unnamed'} — ${workout.performedAt.toISOString().slice(0, 10)}`,
     workout.durationMinutes ? `Duration: ${workout.durationMinutes} minutes` : '',
+    workout.notes ? `Workout Note: "${workout.notes}"` : '',
     '',
   ];
 
   for (const ex of workout.exercises) {
     lines.push(`${ex.exercise.canonicalName}:`);
+    if (ex.notes) {
+      lines.push(`  Note: "${ex.notes}"`);
+    }
     for (const set of ex.sets) {
-      const parts = [
-        `  ${set.setType === 'WARMUP' ? '(WU) ' : ''}`,
-        set.weightKg !== null ? `${set.weightKg}kg` : '',
-        set.reps !== null ? `× ${set.reps} reps` : '',
-        set.rpe !== null ? `@RPE ${set.rpe}` : '',
-      ].filter(Boolean);
-      lines.push(parts.join(' '));
+      const parts = [];
+      // Set type prefix
+      if (set.setType === 'WARMUP') parts.push('(WU)');
+      else if (set.setType === 'DROP') parts.push('(DROP)');
+      else if (set.setType === 'FAILURE') parts.push('(FAIL)');
+      // Weight and reps
+      if (set.weightKg !== null) parts.push(`${set.weightKg}kg`);
+      if (set.reps !== null) parts.push(`× ${set.reps} reps`);
+      // RPE and RIR (both independently reported, never derived)
+      if (set.rpe !== null) parts.push(`@RPE ${set.rpe}`);
+      if (set.rir !== null) parts.push(`RIR ${set.rir}`);
+      // Set-level notes
+      if (set.notes) parts.push(`"${set.notes}"`);
+      lines.push(`  ${parts.join(' ')}`);
     }
     lines.push('');
   }

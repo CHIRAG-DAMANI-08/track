@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db';
 import { getPersonalizedAthleteProfile } from '@/lib/personalization/context';
 import { getTimeAwareGreeting } from '@/lib/personalization/greeting';
 import { getDateRangeMuscleExposure } from '@/lib/analytics/muscle-exposure';
+import { getLocalWeekStart, getLocalWeekEnd } from '@/lib/dates/training-calendar';
 import { format } from 'date-fns';
 
 export interface DashboardResponse {
@@ -63,15 +64,9 @@ export async function GET() {
   try {
     const now = new Date();
 
-    // 1. Current Week calculation (Monday to Sunday)
-    const dayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
-    const diffToMonday = (dayOfWeek + 6) % 7;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - diffToMonday);
-    weekStart.setHours(0, 0, 0, 0);
-
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    // 1. Current Week calculation — centralized Monday-start convention
+    const weekStart = getLocalWeekStart(now);
+    const weekEnd = getLocalWeekEnd(now);
 
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
@@ -91,7 +86,7 @@ export async function GET() {
         where: {
           performedAt: {
             gte: weekStart,
-            lt: weekEnd,
+            lte: weekEnd,
           },
         },
         select: {
@@ -122,7 +117,7 @@ export async function GET() {
           },
         },
       }),
-      getDateRangeMuscleExposure(weekStart, now),
+      getDateRangeMuscleExposure(weekStart, weekEnd),
       prisma.coachObservation.findFirst({
         where: {
           status: 'ACTIVE',

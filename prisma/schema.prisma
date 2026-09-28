@@ -155,14 +155,15 @@ enum MuscleRole {
 
 // ─── WORKOUTS ───────────────────────────────────────────────
 model Workout {
-  id           String   @id @default(cuid())
-  rawImportId  String?  @map("raw_import_id")
-  name         String?
-  performedAt  DateTime @map("performed_at")
-  durationMinutes Int?  @map("duration_minutes")
-  notes        String?
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  id                String   @id @default(cuid())
+  rawImportId       String?  @map("raw_import_id")
+  importFingerprint String?  @unique @map("import_fingerprint")
+  name              String?
+  performedAt       DateTime @map("performed_at")
+  durationMinutes   Int?     @map("duration_minutes")
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
 
   rawImport     RawHevyImport? @relation(fields: [rawImportId], references: [id], onDelete: SetNull)
   exercises     WorkoutExercise[]
@@ -197,10 +198,12 @@ model ExerciseSet {
   setIndex          Int      @map("set_index")
   setType           SetType  @default(WORKING)
   weightKg          Float?   @map("weight_kg")
+  weightUnit        String?  @default("kg") @map("weight_unit")
   reps              Int?
   durationSeconds   Int?     @map("duration_seconds")
   distanceMeters    Float?   @map("distance_meters")
   rpe               Float?
+  rir               Float?
   isPersonalRecord  Boolean  @default(false) @map("is_personal_record")
   notes             String?
   createdAt         DateTime @default(now()) @map("created_at")

@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Trash2, Brain, Calendar, Target, Check, Sparkles } from 'lucide-react';
+import { ArrowLeft, Trash2, Brain, Calendar, Target, Check, Sparkles, Flame, Thermometer, StickyNote } from 'lucide-react';
 import { format } from 'date-fns';
 import dynamic from 'next/dynamic';
 import { MuscleMapSheet, type MuscleExposureDetail } from '@/components/anatomy';
@@ -289,12 +289,17 @@ function WorkoutDetailContent() {
           id: string;
           exerciseId: string;
           exercise: { canonicalName: string; primaryMuscle: string | null };
+          notes: string | null;
           sets: Array<{
             id: string;
             setIndex: number;
+            setType: string;
             weightKg: number | null;
             reps: number | null;
+            rpe: number | null;
+            rir: number | null;
             isPersonalRecord: boolean;
+            notes: string | null;
           }>;
         }) => {
           const comp = comparison?.[we.exerciseId];
@@ -321,24 +326,67 @@ function WorkoutDetailContent() {
                 )}
               </div>
 
+              {/* Exercise Note */}
+              {we.notes && (
+                <div className="flex items-start gap-1.5 px-2 py-1.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-xs text-blue-300">
+                  <StickyNote size={12} className="shrink-0 mt-0.5" />
+                  <span>{we.notes}</span>
+                </div>
+              )}
+
               {/* Sets Table */}
               <div className="space-y-1">
                 {we.sets.map((set) => (
-                  <div
-                    key={set.id}
-                    className="flex items-center justify-between text-xs py-1 px-2 rounded bg-white/[0.02]"
-                  >
-                    <span className="text-zinc-500 font-mono w-6">
-                      #{set.setIndex + 1}
-                    </span>
-                    <span className="font-semibold text-zinc-200">
-                      {set.weightKg ? `${set.weightKg} kg` : 'Bodyweight'}
-                    </span>
-                    <span className="text-zinc-300">
-                      {set.reps ? `${set.reps} reps` : ''}
-                    </span>
-                    {set.isPersonalRecord && (
-                      <span className="badge badge-accent text-[10px]">PR</span>
+                  <div key={set.id}>
+                    <div
+                      className="flex items-center justify-between text-xs py-1 px-2 rounded bg-white/[0.02]"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-zinc-500 font-mono w-6">
+                          #{set.setIndex + 1}
+                        </span>
+                        {set.setType !== 'WORKING' && (
+                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                            set.setType === 'WARMUP'
+                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                              : set.setType === 'DROP'
+                              ? 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+                              : set.setType === 'FAILURE'
+                              ? 'bg-red-500/20 text-red-300 border-red-500/30'
+                              : 'bg-white/5 text-zinc-400 border-white/10'
+                          }`}>
+                            {set.setType === 'WARMUP' ? 'WU' : set.setType === 'DROP' ? 'DROP' : set.setType === 'FAILURE' ? 'FAIL' : set.setType}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="font-semibold text-zinc-200">
+                          {set.weightKg ? `${set.weightKg} kg` : 'Bodyweight'}
+                        </span>
+                        <span className="text-zinc-300">
+                          {set.reps ? `${set.reps} reps` : ''}
+                        </span>
+                        {set.rpe !== null && set.rpe !== undefined && (
+                          <span className="flex items-center gap-0.5 text-amber-400">
+                            <Flame size={11} />
+                            <span className="font-semibold">{set.rpe}</span>
+                          </span>
+                        )}
+                        {set.rir !== null && set.rir !== undefined && (
+                          <span className="flex items-center gap-0.5 text-blue-400">
+                            <Thermometer size={11} />
+                            <span className="font-semibold">{set.rir}</span>
+                          </span>
+                        )}
+                        {set.isPersonalRecord && (
+                          <span className="badge badge-accent text-[10px]">PR</span>
+                        )}
+                      </div>
+                    </div>
+                    {set.notes && (
+                      <div className="ml-8 mt-0.5 px-2 py-1 rounded bg-white/[0.03] text-[11px] text-zinc-400 italic">
+                        &ldquo;{set.notes}&rdquo;
+                      </div>
                     )}
                   </div>
                 ))}

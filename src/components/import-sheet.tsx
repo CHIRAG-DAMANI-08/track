@@ -3,9 +3,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation } from '@tanstack/react-query';
-import { ClipboardPaste, X, Loader2, AlertTriangle, FileText } from 'lucide-react';
-
-import { parseHevyText } from '@/lib/parser';
+import { ClipboardPaste, X, Loader2, AlertTriangle, FileText, Eye } from 'lucide-react';
 
 interface ImportSheetProps {
   open: boolean;
@@ -19,6 +17,10 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
 
   const parseMutation = useMutation({
     mutationFn: async (rawText: string) => {
+      // ALWAYS go through server for:
+      // 1. Duplicate detection (both rawText hash AND import fingerprint)
+      // 2. Consistent rawImportId assignment
+      // 3. AI fallback if needed
       const res = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -32,13 +34,26 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
     },
     onSuccess: (data) => {
       if (data.isDuplicate) {
-        if (!confirm('This workout appears to have been imported before. Import anyway?')) {
+        const existingId = data.existingWorkoutIds?.[0];
+        if (existingId) {
+          const viewExisting = confirm(
+            'This workout has already been imported.\n\nWould you like to view the existing workout?'
+          );
+          if (viewExisting) {
+            onClose();
+            setText('');
+            router.push(`/workout/${existingId}`);
+          }
+          return;
+        }
+        if (!confirm('This workout text appears to have been imported before. Import anyway?')) {
           return;
         }
       }
       // Navigate to review page with state
       const params = new URLSearchParams({
-        importId: data.rawImportId,
+        importId: data.rawImportId ?? '',
+        rawText: text.trim(),
         data: JSON.stringify(data.workout),
         warnings: JSON.stringify(data.warnings ?? []),
       });
@@ -69,25 +84,12 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
     const trimmed = text.trim();
     if (!trimmed) return;
 
-    // 1. Instant client-side deterministic parsing
-    try {
-      const localResult = parseHevyText(trimmed);
-      if (localResult.workout && localResult.workout.exercises.length > 0) {
-        const params = new URLSearchParams({
-          rawText: trimmed,
-          data: JSON.stringify(localResult.workout),
-          warnings: JSON.stringify(localResult.warnings ?? []),
-        });
-        onClose();
-        setText('');
-        router.push(`/review?${params.toString()}`);
-        return;
-      }
-    } catch {
-      // Ignore local error and fallback to server
-    }
-
-    // 2. Server fallback (handles ambiguous AI parsing and duplicate verification)
+    // Always go through server — no client-side fast path.
+    // The server path ensures:
+    // - Duplicate detection via text hash
+    // - Proper rawImportId assignment  
+    // - AI fallback for ambiguous text
+    // - Consistent behavior
     parseMutation.mutate(trimmed);
   };
 
@@ -139,7 +141,7 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
           <textarea
             ref={textareaRef}
             className="textarea mb-4"
-            placeholder="Paste your Hevy workout text here...&#10;&#10;Example:&#10;Bench Press (Barbell)&#10;100 kg x 8&#10;100 kg x 8&#10;100 kg x 6"
+            placeholder={"Paste your Hevy workout text here...\n\nExample:\nBench Press (Barbell)\n100 kg x 8\n100 kg x 8\n100 kg x 6"}
             value={text}
             onChange={(e) => setText(e.target.value)}
             rows={8}
@@ -185,6 +187,7 @@ export function ImportSheet({ open, onClose }: ImportSheetProps) {
             }}
             className="btn-ghost w-full text-center"
           >
+            <Eye size={16} />
             View Recent Imports
           </button>
         </div>
