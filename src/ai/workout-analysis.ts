@@ -123,17 +123,17 @@ export function formatWorkoutForPrompt(workout: {
   name: string | null;
   performedAt: Date;
   durationMinutes: number | null;
-  notes: string | null;
+  notes?: string | null;
   exercises: Array<{
     exercise: { canonicalName: string };
-    notes: string | null;
+    notes?: string | null;
     sets: Array<{
       setType: string;
       weightKg: number | null;
       reps: number | null;
-      rpe: number | null;
-      rir: number | null;
-      notes: string | null;
+      rpe?: number | null;
+      rir?: number | null;
+      notes?: string | null;
     }>;
   }>;
 }): string {
