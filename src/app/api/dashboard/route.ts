@@ -3,8 +3,7 @@ import { prisma } from '@/lib/db';
 import { getPersonalizedAthleteProfile } from '@/lib/personalization/context';
 import { getTimeAwareGreeting } from '@/lib/personalization/greeting';
 import { getDateRangeMuscleExposure } from '@/lib/analytics/muscle-exposure';
-import { getLocalWeekStart, getLocalWeekEnd } from '@/lib/dates/training-calendar';
-import { format } from 'date-fns';
+import { getLocalWeekStart, getLocalWeekEnd, toLocalDateKey, formatInAthleteTimeZone } from '@/lib/dates/training-calendar';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -159,24 +158,23 @@ export async function GET() {
     const userName = profile.displayName || profile.firstName || 'Chirag';
     const greeting = getTimeAwareGreeting(userName);
 
-    // Calculate week days status
+    // Calculate week days status using athlete local date keys
     const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
-    const todayDateString = now.toDateString();
+    const todayKey = toLocalDateKey(now);
 
     const weekDays = dayLabels.map((dayLabel, index) => {
-      const d = new Date(weekStart);
-      d.setDate(weekStart.getDate() + index);
-      const dString = d.toDateString();
+      const d = new Date(weekStart.getTime() + index * 24 * 60 * 60 * 1000);
+      const dayKey = toLocalDateKey(d);
 
       const active = weekWorkouts.some(
-        (w) => new Date(w.performedAt).toDateString() === dString
+        (w) => toLocalDateKey(w.performedAt) === dayKey
       );
 
       return {
         day: dayLabel,
         date: d.toISOString(),
         active,
-        isToday: dString === todayDateString,
+        isToday: dayKey === todayKey,
       };
     });
 
@@ -196,7 +194,8 @@ export async function GET() {
     }
 
     const workoutsThisWeek = weekWorkouts.length;
-    const subtext = `${format(now, 'EEEE, MMM d')} · ${workoutsThisWeek} workout${workoutsThisWeek === 1 ? '' : 's'} this week`;
+    const dateFormatted = formatInAthleteTimeZone(now, { weekday: 'long', month: 'short', day: 'numeric' });
+    const subtext = `${dateFormatted} · ${workoutsThisWeek} workout${workoutsThisWeek === 1 ? '' : 's'} this week`;
 
     // Records / PRs card
     let recordsCard: DashboardResponse['records'];
@@ -362,7 +361,7 @@ export async function GET() {
         id: latest.id,
         name: latest.name || 'Workout',
         performedAt: latest.performedAt.toISOString(),
-        formattedDate: format(new Date(latest.performedAt), 'MMM d'),
+        formattedDate: formatInAthleteTimeZone(new Date(latest.performedAt), { month: 'short', day: 'numeric' }),
         setsCount,
         exercisesCount: latest.exercises.length,
       };
@@ -398,7 +397,7 @@ export async function GET() {
 
     return NextResponse.json(responseData, {
       headers: {
-        'Cache-Control': 'private, max-age=15, stale-while-revalidate=120',
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
       },
     });
   } catch (error) {

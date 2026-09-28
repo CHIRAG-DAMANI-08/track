@@ -67,7 +67,8 @@ export default function TodayPage() {
       if (!res.ok) throw new Error('Failed to load dashboard');
       return res.json();
     },
-    staleTime: 1000 * 60 * 5, // 5 minutes fresh
+    staleTime: 1000 * 30, // 30s fresh for responsive navigation
+    refetchOnWindowFocus: true,
   });
 
   const latestWorkoutId = data?.latestWorkout?.id;
@@ -90,9 +91,27 @@ export default function TodayPage() {
     }
   }, [router, queryClient, latestWorkoutId]);
 
-  // Greeting fallback before any data loads
-  const greeting = data?.athlete.greeting ?? 'Welcome back, Chirag';
-  const subtext = data?.athlete.subtext ?? 'Fitness Command Center';
+  // Greeting actively tracks time of day and updates in real time
+  const [greeting, setGreeting] = useState<string>(() =>
+    data?.athlete.greeting ?? 'Good afternoon, Chirag.'
+  );
+
+  useEffect(() => {
+    const updateGreeting = () => {
+      const hour = new Date().getHours();
+      let g = 'Good evening';
+      if (hour >= 5 && hour < 12) g = 'Good morning';
+      else if (hour >= 12 && hour < 17) g = 'Good afternoon';
+      const name = data?.athlete.name || 'Chirag';
+      setGreeting(`${g}, ${name}.`);
+    };
+    updateGreeting();
+    const timer = setInterval(updateGreeting, 60000);
+    return () => clearInterval(timer);
+  }, [data?.athlete.name, data?.athlete.greeting]);
+
+  const fallbackSubtext = `${new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'short', day: 'numeric' }).format(new Date())} · Training Command Center`;
+  const subtext = data?.athlete.subtext ?? fallbackSubtext;
 
   return (
     <div className="w-full max-w-lg md:max-w-4xl mx-auto flex flex-col justify-between h-[calc(100dvh-80px-env(safe-area-inset-bottom))] max-h-[calc(100dvh-80px-env(safe-area-inset-bottom))] px-3.5 py-3 sm:px-4 sm:py-4 overflow-hidden md:h-auto md:max-h-none md:overflow-visible">

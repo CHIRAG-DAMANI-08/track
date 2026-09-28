@@ -34,8 +34,22 @@ export interface HomeContextParams {
  * 12:00–16:59: "Good afternoon, Chirag."
  * 17:00–04:59: "Good evening, Chirag."
  */
-export function getTimeAwareGreeting(name = 'Chirag', date: Date = new Date()): string {
-  const hour = date.getHours();
+export function getTimeAwareGreeting(
+  name = 'Chirag',
+  date: Date = new Date(),
+  timeZone: string = 'Asia/Kolkata'
+): string {
+  let hour: number;
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: 'numeric',
+      hour12: false,
+    });
+    hour = parseInt(formatter.format(date), 10) % 24;
+  } catch {
+    hour = date.getHours();
+  }
 
   if (hour >= 5 && hour < 12) {
     return `Good morning, ${name}.`;
