@@ -6,6 +6,9 @@ import { getDateRangeMuscleExposure } from '@/lib/analytics/muscle-exposure';
 import { getLocalWeekStart, getLocalWeekEnd } from '@/lib/dates/training-calendar';
 import { format } from 'date-fns';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export interface DashboardResponse {
   athlete: {
     name: string;
