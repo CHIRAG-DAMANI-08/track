@@ -403,6 +403,13 @@ body {
   padding-bottom: calc(80px + env(safe-area-inset-bottom));
 }
 
+/* Coach page manages its own height — remove shell padding */
+.page-shell:has(.coach-shell) {
+  padding-bottom: 0;
+  min-height: auto;
+  height: auto;
+}
+
 .page-header {
   position: sticky;
   top: 0;
@@ -517,4 +524,734 @@ body {
 
 .muscle-map-viewport .body-chart-svg path {
   cursor: pointer;
+}
+
+/* ─── Coach Page ─────────────────────────────────────────────── */
+
+.coach-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 64px - env(safe-area-inset-bottom));
+  overflow: hidden;
+}
+
+.coach-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-0);
+  flex-shrink: 0;
+  min-height: 52px;
+  gap: 0.5rem;
+}
+
+.coach-header-center {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex: 1;
+  justify-content: center;
+}
+
+.coach-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.coach-back-btn,
+.coach-new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0.375rem;
+  border-radius: var(--radius-md);
+  position: relative;
+  transition: color 150ms, background 150ms;
+}
+
+.coach-back-btn:hover,
+.coach-new-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-2);
+}
+
+.coach-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  font-size: 0.5625rem;
+  font-weight: 700;
+  min-width: 15px;
+  height: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  padding: 0 3px;
+}
+
+/* Messages area — fills remaining space, scrolls independently */
+.coach-messages {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.75rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+/* Welcome / empty state */
+.coach-welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+  gap: 1rem;
+  padding: 1.5rem 0;
+}
+
+.coach-welcome-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  color: var(--color-text-primary);
+  margin-bottom: 0.25rem;
+}
+
+.coach-welcome-subtitle {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.coach-starters {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.coach-starter-btn {
+  width: 100%;
+  text-align: left;
+  font-size: 0.75rem;
+  padding: 0.75rem;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: color 150ms, border-color 150ms, background 150ms;
+  line-height: 1.4;
+}
+
+.coach-starter-btn:hover {
+  color: var(--color-text-primary);
+  border-color: var(--color-border-strong);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Chat bubbles */
+.coach-bubble-row {
+  display: flex;
+}
+
+.coach-bubble-row.user {
+  justify-content: flex-end;
+}
+
+.coach-bubble-row.coach {
+  justify-content: flex-start;
+}
+
+.coach-bubble {
+  max-width: 85%;
+  border-radius: 1.125rem;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.55;
+}
+
+.coach-bubble.user {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border-bottom-right-radius: 4px;
+}
+
+.coach-bubble.coach {
+  background: var(--color-surface-2);
+  color: var(--color-text-primary);
+  border-bottom-left-radius: 4px;
+}
+
+.coach-bubble-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Typing indicator */
+.coach-typing {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 1.125rem;
+  border-bottom-left-radius: 4px;
+  background: var(--color-surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.coach-typing-icon {
+  color: var(--color-accent);
+  animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error bar */
+.coach-error-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--radius-lg);
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.15);
+  gap: 0.5rem;
+}
+
+.coach-error-content {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: var(--color-error);
+  min-width: 0;
+  flex: 1;
+}
+
+.coach-error-content span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coach-retry-btn {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 0.25rem 0.5rem;
+}
+
+/* Input bar — always pinned at bottom */
+.coach-input-bar {
+  flex-shrink: 0;
+  padding: 0.625rem 1rem;
+  padding-bottom: calc(0.625rem + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-surface-0);
+}
+
+.coach-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.5rem;
+}
+
+.coach-textarea {
+  flex: 1;
+  min-height: 42px;
+  max-height: 120px;
+  padding: 0.625rem 0.875rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 1.25rem;
+  background: var(--color-surface-1);
+  color: var(--color-text-primary);
+  resize: none;
+  overflow-y: auto;
+  font-family: inherit;
+}
+
+.coach-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.coach-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.coach-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+  border: none;
+  cursor: pointer;
+  transition: opacity 150ms, transform 150ms;
+}
+
+.coach-send-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.coach-send-btn:not(:disabled):active {
+  transform: scale(0.92);
+}
+
+/* History list */
+.coach-history-list {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.5rem 0;
+}
+
+.coach-empty-history {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: 0.8125rem;
+}
+
+.coach-history-item {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--color-border-subtle);
+  transition: background 150ms;
+}
+
+.coach-history-item:hover {
+  background: var(--color-surface-1);
+}
+
+.coach-history-item.active {
+  background: rgba(232, 160, 52, 0.06);
+  border-left: 3px solid var(--color-accent);
+}
+
+.coach-history-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  padding: 0.75rem 1rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  min-width: 0;
+}
+
+.coach-history-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.coach-history-meta {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+}
+
+.coach-history-preview {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 0.125rem;
+}
+
+.coach-history-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.75rem;
+  background: none;
+  border: none;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms, color 150ms;
+}
+
+.coach-history-item:hover .coach-history-delete {
+  opacity: 1;
+}
+
+.coach-history-delete:hover {
+  color: var(--color-error);
+}
+
+/* ─── Voice Input ────────────────────────────────────────────── */
+
+.coach-mic-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  transition: all 200ms;
+}
+
+.coach-mic-btn:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-3);
+}
+
+.coach-mic-btn.active {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  animation: mic-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+}
+
+.coach-mic-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Recording bar — appears above the input row */
+.coach-recording-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius-lg);
+  background: rgba(239, 68, 68, 0.06);
+  border: 1px solid rgba(239, 68, 68, 0.12);
+}
+
+.coach-recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coach-recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: #ef4444;
+  animation: recording-blink 1s ease-in-out infinite;
+}
+
+@keyframes recording-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.coach-recording-time {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #ef4444;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.25rem;
+}
+
+.coach-recording-label {
+  font-size: 0.75rem;
+  color: var(--color-text-tertiary);
+}
+
+.coach-stop-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: transform 150ms, opacity 150ms;
+}
+
+.coach-stop-btn:active {
+  transform: scale(0.9);
+}
+
+/* Hide the textarea visually when actively recording (but keep it in DOM for value) */
+.coach-input-row.recording .coach-textarea {
+  color: var(--color-text-tertiary);
+}
+
+/* Transcribing indicator */
+.coach-transcribing-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: var(--radius-lg);
+  background: rgba(232, 160, 52, 0.06);
+  border: 1px solid rgba(232, 160, 52, 0.12);
+  font-size: 0.75rem;
+  color: var(--color-accent);
+}
+
+/* Voice Message Bubble Styles */
+.coach-voice-bubble-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 190px;
+  max-width: 100%;
+}
+
+.coach-voice-header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.9;
+}
+
+.coach-voice-player {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 0.625rem;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.coach-bubble.coach .coach-voice-player {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.coach-voice-play-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-inverse);
+  color: var(--color-accent);
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 120ms ease;
+}
+
+.coach-bubble.coach .coach-voice-play-btn {
+  background: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+.coach-voice-play-btn:active {
+  transform: scale(0.92);
+}
+
+.coach-voice-icon-pill {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+}
+
+.coach-voice-track {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1;
+}
+
+.coach-voice-waves {
+  display: flex;
+  align-items: center;
+  gap: 2.5px;
+  height: 22px;
+}
+
+.coach-wave-bar {
+  width: 2.5px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.75;
+}
+
+.coach-voice-time {
+  font-size: 0.75rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
+  margin-left: auto;
+}
+
+.coach-voice-transcription {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  word-break: break-word;
+  white-space: pre-wrap;
+  opacity: 0.95;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  padding-top: 0.375rem;
+}
+
+.coach-bubble.coach .coach-voice-transcription {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+.coach-voice-transcribing-status {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  opacity: 0.85;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+  animation: pulse-subtle 2s ease-in-out infinite;
+}
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 0.45; }
+}
+
+/* Enhanced Recording Bar in bottom row */
+.coach-recording-active-row {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  width: 100%;
+  padding: 0.375rem 0.5rem;
+  border-radius: 1.25rem;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+.coach-recording-cancel-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  background: var(--color-surface-2);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-subtle);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms;
+}
+
+.coach-recording-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.coach-recording-mid {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex: 1;
+}
+
+.coach-recording-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  background: #ef4444;
+  color: white;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  box-shadow: 0 0 12px rgba(239, 68, 68, 0.4);
+  transition: transform 120ms;
+}
+
+.coach-recording-send-btn:active {
+  transform: scale(0.9);
+}
+
+.coach-wave-animation {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.coach-wave-anim-bar {
+  width: 3px;
+  border-radius: 2px;
+  background: #ef4444;
+  animation: wave-bar 1.2s ease-in-out infinite alternate;
+}
+
+.coach-wave-anim-bar:nth-child(1) { height: 6px; animation-delay: 0s; }
+.coach-wave-anim-bar:nth-child(2) { height: 16px; animation-delay: 0.2s; }
+.coach-wave-anim-bar:nth-child(3) { height: 10px; animation-delay: 0.4s; }
+.coach-wave-anim-bar:nth-child(4) { height: 18px; animation-delay: 0.1s; }
+.coach-wave-anim-bar:nth-child(5) { height: 8px; animation-delay: 0.3s; }
+
+@keyframes wave-bar {
+  0% { transform: scaleY(0.4); }
+  100% { transform: scaleY(1.3); }
 }

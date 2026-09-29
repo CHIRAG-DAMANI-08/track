@@ -48,18 +48,44 @@ export async function generateWithGemini(options: GeminiGenerateOptions): Promis
   if (options.responseMimeType) config.responseMimeType = options.responseMimeType;
   if (options.responseSchema) config.responseSchema = options.responseSchema;
 
-  const response = await client.models.generateContent({
-    model: MODELS.primary,
-    contents: options.prompt,
-    config: {
-      ...config,
-      systemInstruction: options.systemInstruction,
-    },
-  });
+  const maxRetries = 3;
+  let lastError: unknown;
 
-  const text = response.text;
-  if (!text) throw new Error('Gemini returned empty response');
-  return text;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await client.models.generateContent({
+        model: MODELS.primary,
+        contents: options.prompt,
+        config: {
+          ...config,
+          systemInstruction: options.systemInstruction,
+        },
+      });
+
+      const text = response.text;
+      if (!text) throw new Error('Gemini returned empty response');
+      return text;
+    } catch (error: unknown) {
+      lastError = error;
+
+      // Check if this is a retryable error (503 overloaded, 429 rate limit, network issues)
+      const isRetryable =
+        error instanceof Error &&
+        (/overloaded|503|429|rate.limit|resource.exhausted|unavailable|high.demand/i.test(error.message) ||
+         /ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(error.message));
+
+      if (!isRetryable || attempt === maxRetries) {
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delayMs = Math.pow(2, attempt) * 1000;
+      console.warn(`Gemini API attempt ${attempt + 1} failed (retryable), retrying in ${delayMs}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delayMs));
+    }
+  }
+
+  throw lastError;
 }
 
 export async function generateStructuredOutput<T>(

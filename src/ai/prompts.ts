@@ -133,11 +133,36 @@ ${context.activeExperiments}
 ## Chirag's Question / Message
 ${context.userMessage}
 
-Respond with a JSON object containing:
-- message: Your direct, personal response to Chirag (conversational, evidence-backed, natural, never generic, never calling him 'the athlete')
-- observations: Array of any new observations from this conversation
-- recommendations: Array of any recommendations arising from this conversation (respecting his dislikes and constraints)
-- candidateMemories: Array of any new things worth remembering long-term`;
+Respond with a JSON object matching this exact structure:
+{
+  "message": "Your direct, personal response to Chirag (conversational, evidence-backed, natural, never generic, never calling him 'the athlete')",
+  "observations": [
+    {
+      "type": "FACTUAL", // Exactly one of: "FACTUAL", "INTERPRETATION", "TREND", "CONCERN", "PRAISE"
+      "content": "Specific observation from this conversation, backed by data",
+      "confidence": 0.9, // Float between 0.0 and 1.0
+      "evidenceSummary": "Reference specific data points"
+    }
+  ],
+  "recommendations": [
+    {
+      "title": "Action title",
+      "content": "Concrete advice (strictly respecting Chirag's equipment and dislikes)",
+      "reasoning": "Why this recommendation is made",
+      "priority": 7, // Integer from 1 to 10
+      "category": "Recovery / Progression / Technique / Deload"
+    }
+  ],
+  "candidateMemories": [
+    {
+      "memoryType": "OBSERVATION", // Exactly one of: "PROFILE", "PREFERENCE", "CONSTRAINT", "OBSERVATION", "HYPOTHESIS", "INTERVENTION", "OUTCOME", "LEARNED_PATTERN"
+      "statement": "Fact or pattern worth remembering long-term about Chirag",
+      "confidence": 0.8, // Float between 0.0 and 1.0
+      "reasoning": "Why this should be remembered"
+    }
+  ]
+}
+IMPORTANT: type and memoryType MUST be uppercase strings from the allowed lists. confidence and priority MUST be raw numbers, not strings. If there are no observations, recommendations, or memories, use empty arrays []. Never refer to Chirag as 'the athlete' or 'the user'.`;
 }
 
 export function buildMemoryExtractionPrompt(context: {
