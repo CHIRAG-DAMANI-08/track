@@ -301,10 +301,22 @@ export default function CoachPage() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const res = await fetch(`/api/coach?conversationId=${id}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Failed to delete');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? 'Failed to delete');
+      }
       return res.json();
     },
     onSuccess: (_data, deletedId) => {
+      queryClient.setQueryData(
+        ['coach-conversations'],
+        (old: { conversations: ConversationSummary[] } | undefined) => {
+          if (!old) return old;
+          return {
+            conversations: old.conversations.filter((c) => c.id !== deletedId),
+          };
+        }
+      );
       queryClient.invalidateQueries({ queryKey: ['coach-conversations'] });
       if (conversationId === deletedId) {
         setConversationId(undefined);
@@ -566,14 +578,22 @@ export default function CoachPage() {
                     )}
                   </button>
                   <button
+                    type="button"
                     className="coach-history-delete"
                     onClick={(e) => {
                       e.stopPropagation();
+                      e.preventDefault();
                       deleteMutation.mutate(conv.id);
                     }}
-                    aria-label="Delete conversation"
+                    disabled={deleteMutation.isPending && deleteMutation.variables === conv.id}
+                    aria-label={`Delete conversation ${conv.title || 'Untitled'}`}
+                    title="Delete conversation"
                   >
-                    <Trash2 size={14} />
+                    {deleteMutation.isPending && deleteMutation.variables === conv.id ? (
+                      <Sparkles size={18} className="coach-typing-icon" />
+                    ) : (
+                      <Trash2 size={20} />
+                    )}
                   </button>
                 </div>
               );
